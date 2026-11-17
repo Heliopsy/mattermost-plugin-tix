@@ -373,12 +373,26 @@ func (f *Feature) handle(ev *Event) {
 	if err != nil {
 		f.a.API.LogWarn("tix: reading subscriptions", "err", err.Error())
 	}
+	// A comment the cards feature mirrored from a thread is not posted back into that channel.
+	var mirror *store.Mirror
+	if ev.Type == "comment.added" && f.a.Store != nil {
+		mirror = f.a.Store.MirroredComment(ref, ev.ActorID, in.Comment, ev.SubjectID)
+	}
+	var posted []string
 	if text := feedText(ev, in, name); text != "" {
 		for _, ch := range matchChannels(subs, in.ProjectKey, ks) {
+			if mirror != nil && ch == mirror.ChannelID {
+				continue
+			}
 			if _, appErr := f.a.API.CreatePost(&model.Post{UserId: f.a.BotID, ChannelId: ch, Message: text}); appErr != nil {
 				f.a.API.LogWarn("tix: posting to a subscribed channel", "channel_id", ch, "err", appErr.Error())
+				continue
 			}
+			posted = append(posted, ch)
 		}
+	}
+	if ts, ok := f.cards.(ThreadSyncer); ok && ev.Type == "comment.added" {
+		ts.CommentAdded(ref, ev.SubjectID, ev.ActorID, name(ev.ActorID, false), in.Comment, posted)
 	}
 
 	for _, r := range recipients(ev, in, targets(ev, in), f.directory()) {

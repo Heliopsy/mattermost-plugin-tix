@@ -49,6 +49,18 @@ type CardRef struct {
 	PostID    string    `json:"post_id"`
 	ChannelID string    `json:"channel_id"`
 	CreatedAt time.Time `json:"created_at"`
+	// RootID is the thread the card post is in (the post itself when it is a root).
+	RootID string `json:"root_id,omitempty"`
+	// SourceID is the person's post a bot card answers; empty for a card drawn on the person's own post.
+	SourceID string `json:"source_id,omitempty"`
+}
+
+// Mirror is a tix comment the plugin wrote from a Mattermost reply (task-cards thread sync). notify
+// consults it so the comment is not posted back into the channel it came from.
+type Mirror struct {
+	ChannelID string `json:"channel_id"`
+	RootID    string `json:"root_id"`
+	PostID    string `json:"post_id"`
 }
 
 // ErrNotFound is returned when a record does not exist.
@@ -59,7 +71,9 @@ const (
 	actorPrefix    = "la_"  // la_<tix actor id> -> mm user id
 	subsKey        = "subs" // all subscriptions
 	cardPrefix     = "cd_"  // cd_<task ref> -> []CardRef
+	mirrorPrefix   = "mc_"  // mc_<comment id> or mc_<hash of ref, actor, body> -> Mirror
 	maxCardsPerRef = 50
+	mirrorTTL      = 24 * time.Hour
 )
 
 // Store reads and writes plugin records.
@@ -242,6 +256,42 @@ func (s *Store) RemoveCard(ref, postID string) error {
 	}
 	_, err = s.kv.Set(cardPrefix+strings.ToLower(ref), out)
 	return err
+}
+
+// mirrorBodyKey names a mirrored comment before tix has given it an id.
+func mirrorBodyKey(ref, actorID, body string) string {
+	sum := sha256.Sum256([]byte(strings.ToLower(ref) + "\x00" + actorID + "\x00" + strings.TrimSpace(body)))
+	return mirrorPrefix + "b" + base64.RawURLEncoding.EncodeToString(sum[:18])
+}
+
+// MarkMirrored records a comment the plugin is writing to tix from a Mattermost post. Call it before
+// the comment is created (commentID "") so a fast webhook already finds it, and again with the id.
+func (s *Store) MarkMirrored(ref, actorID, body, commentID string, m Mirror) error {
+	key := mirrorBodyKey(ref, actorID, body)
+	if commentID != "" {
+		key = mirrorPrefix + commentID
+	}
+	_, err := s.kv.Set(key, m, pluginapi.SetExpiry(mirrorTTL))
+	return err
+}
+
+// MirroredComment returns where a tix comment came from when the plugin wrote it from a Mattermost
+// post, or nil. It looks the comment up by id, then by task, author and text.
+func (s *Store) MirroredComment(ref, actorID, body, commentID string) *Mirror {
+	keys := []string{}
+	if commentID != "" {
+		keys = append(keys, mirrorPrefix+commentID)
+	}
+	if body != "" {
+		keys = append(keys, mirrorBodyKey(ref, actorID, body))
+	}
+	for _, k := range keys {
+		var m Mirror
+		if err := s.kv.Get(k, &m); err == nil && m.ChannelID != "" {
+			return &m
+		}
+	}
+	return nil
 }
 
 // Get and Set give features a namespaced place for small records of their own.

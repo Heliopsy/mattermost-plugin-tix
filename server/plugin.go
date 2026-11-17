@@ -3,7 +3,10 @@
 package main
 
 import (
+	"encoding/json"
 	"net/http"
+	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/mattermost/mattermost/server/public/model"
@@ -57,7 +60,10 @@ func (p *Plugin) OnActivate() error {
 	st := store.New(&client.KV, func() string { return p.getConfiguration().EncryptionKey })
 	p.app = app.New(p.API, client, st, botID, func() *app.Config {
 		c := p.getConfiguration()
-		return &app.Config{TixURL: c.TixURL, AdminToken: c.AdminToken, EncryptionKey: c.EncryptionKey, WebhookSecret: c.WebhookSecret, UnfurlRefs: c.UnfurlRefs}
+		return &app.Config{
+			TixURL: c.TixURL, AdminToken: c.AdminToken, EncryptionKey: c.EncryptionKey, WebhookSecret: c.WebhookSecret,
+			UnfurlRefs: c.UnfurlRefs, CardStyle: c.CardStyle, CardQuietMinutes: quietMinutes(c.CardQuietMinutes),
+		}
 	})
 
 	p.http = api.NewHandler(p.API)
@@ -86,7 +92,26 @@ func (p *Plugin) MessageWillBePosted(c *plugin.Context, post *model.Post) (*mode
 	return p.cards.MessageWillBePosted(c, post)
 }
 
-// MessageHasBeenPosted lets the cards feature remember which posts show which tasks.
+// MessageHasBeenPosted lets the cards feature answer with task cards and mirror synced replies.
 func (p *Plugin) MessageHasBeenPosted(c *plugin.Context, post *model.Post) {
 	p.cards.MessageHasBeenPosted(c, post)
+}
+
+// MessageHasBeenUpdated lets the cards feature card a reference added by an edit.
+func (p *Plugin) MessageHasBeenUpdated(c *plugin.Context, newPost, oldPost *model.Post) {
+	p.cards.MessageHasBeenUpdated(c, newPost, oldPost)
+}
+
+// MessageHasBeenDeleted lets the cards feature remove the card that answered a deleted post.
+func (p *Plugin) MessageHasBeenDeleted(c *plugin.Context, post *model.Post) {
+	p.cards.MessageHasBeenDeleted(c, post)
+}
+
+// quietMinutes reads the CardQuietMinutes setting; anything unreadable means the default.
+func quietMinutes(n json.Number) int {
+	v, err := strconv.Atoi(strings.TrimSpace(n.String()))
+	if err != nil || v < 0 {
+		return 0
+	}
+	return v
 }

@@ -5,6 +5,7 @@ package cards
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -132,6 +133,7 @@ type fakeTix struct {
 	transitions []map[string]any
 	patches     []map[string]any
 	comments    []string
+	commenters  []string // token of each comment
 }
 
 func newFakeTix() *fakeTix {
@@ -192,7 +194,8 @@ func (f *fakeTix) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		case r.Method == http.MethodPost && sub == "comments":
 			body, _ := in["body"].(string)
 			f.comments = append(f.comments, body)
-			writeJSON(tix.Comment{ID: "c1", Body: body})
+			f.commenters = append(f.commenters, tok)
+			writeJSON(tix.Comment{ID: fmt.Sprintf("c%d", len(f.comments)), Body: body})
 			return
 		default:
 			w.WriteHeader(http.StatusNotFound)
@@ -219,12 +222,17 @@ type env struct {
 	bob    string // linked, sees infra-1 only
 	carol  string // not linked
 	unfurl bool
+	style  string
+	quiet  int
+	// created are the posts the bot made, in order.
+	created []*model.Post
+	deleted []string
 }
 
 func newEnv(t *testing.T) *env {
 	e := &env{
 		t: t, api: &plugintest.API{}, tix: newFakeTix(), kv: map[string][]byte{}, posts: map[string]*model.Post{},
-		alice: model.NewId(), bob: model.NewId(), carol: model.NewId(), unfurl: true,
+		alice: model.NewId(), bob: model.NewId(), carol: model.NewId(), unfurl: true, style: "inline",
 	}
 	srv := httptest.NewServer(e.tix)
 	t.Cleanup(srv.Close)
@@ -285,11 +293,27 @@ func newEnv(t *testing.T) *env {
 		return p, nil
 	}).Maybe()
 	e.api.On("LogAuditRec", mock.Anything).Maybe()
+	e.api.On("CreatePost", mock.Anything).Return(func(p *model.Post) (*model.Post, *model.AppError) {
+		p = e.save(p)
+		e.pmu.Lock()
+		e.created = append(e.created, p.Clone())
+		e.pmu.Unlock()
+		return p, nil
+	}).Maybe()
+	e.api.On("DeletePost", mock.Anything).Return(func(id string) *model.AppError {
+		e.pmu.Lock()
+		defer e.pmu.Unlock()
+		if p, ok := e.posts[id]; ok {
+			p.DeleteAt = 1
+		}
+		e.deleted = append(e.deleted, id)
+		return nil
+	}).Maybe()
 
 	client := pluginapi.NewClient(e.api, nil)
 	st := store.New(&client.KV, func() string { return "test-key" })
 	e.app = app.New(e.api, client, st, "botid", func() *app.Config {
-		return &app.Config{TixURL: srv.URL, UnfurlRefs: e.unfurl}
+		return &app.Config{TixURL: srv.URL, UnfurlRefs: e.unfurl, CardStyle: e.style, CardQuietMinutes: e.quiet}
 	})
 	require.NoError(t, st.SaveLink(&store.Link{UserID: e.alice, ActorID: "a1"}, "tok-alice"))
 	require.NoError(t, st.SaveLink(&store.Link{UserID: e.bob, ActorID: "a2"}, "tok-bob"))
@@ -299,11 +323,25 @@ func newEnv(t *testing.T) *env {
 
 // post runs a message through both hooks and stores it.
 func (e *env) post(userID, msg string, props model.StringInterface) *model.Post {
-	p := &model.Post{Id: model.NewId(), UserId: userID, ChannelId: "ch1", Message: msg}
+	return e.postIn("", userID, msg, props)
+}
+
+// postIn posts a message in the thread rooted at root ("" for a new thread).
+func (e *env) postIn(root, userID, msg string, props model.StringInterface) *model.Post {
+	p := &model.Post{Id: model.NewId(), UserId: userID, ChannelId: "ch1", RootId: root, Message: msg}
 	p.SetProps(props)
 	p, rejected := e.f.MessageWillBePosted(&plugin.Context{}, p)
 	require.Empty(e.t, rejected)
-	// Props go through JSON on the way to the database.
+	saved := e.save(p)
+	e.f.MessageHasBeenPosted(&plugin.Context{}, saved)
+	return e.stored(saved.Id)
+}
+
+// save stores a post as the database would, props through JSON.
+func (e *env) save(p *model.Post) *model.Post {
+	if p.Id == "" {
+		p.Id = model.NewId()
+	}
 	raw, err := json.Marshal(p)
 	require.NoError(e.t, err)
 	var saved model.Post
@@ -311,8 +349,7 @@ func (e *env) post(userID, msg string, props model.StringInterface) *model.Post 
 	e.pmu.Lock()
 	e.posts[saved.Id] = &saved
 	e.pmu.Unlock()
-	e.f.MessageHasBeenPosted(&plugin.Context{}, &saved)
-	return &saved
+	return saved.Clone()
 }
 
 func (e *env) serve(userID, path string, body any) *httptest.ResponseRecorder {

@@ -20,6 +20,12 @@ import (
 // Refresher redraws task cards (the cards feature).
 type Refresher interface{ Refresh(ref string) }
 
+// ThreadSyncer posts a new tix comment into the synced card threads of its task (the cards
+// feature), except in channels notify already posted it to.
+type ThreadSyncer interface {
+	CommentAdded(ref, commentID, actorID, author, body string, skipChannels []string)
+}
+
 // Feature is the notify feature.
 type Feature struct {
 	a     *app.App

@@ -117,9 +117,16 @@ none to a person who turned notifications off with `/tix notifications off`.
 ### Requirement: Live task cards
 
 After any task or comment event that names a task, the plugin SHALL ask the cards feature to redraw every card
-showing that task.
+showing that task. For a new comment it SHALL also hand the comment to the cards feature for synced card threads,
+with the channels it already posted it to. A comment the cards feature mirrored from a channel's thread
+(`store.MirroredComment`) SHALL NOT be posted to that channel's feed.
 
 #### Scenario: Card refresh
 
 - **WHEN** a task shown in a card is transitioned in tix
 - **THEN** the card is redrawn with the new state
+
+#### Scenario: Mirrored comment is not echoed
+
+- **WHEN** a reply in a synced card thread in a subscribed channel becomes a tix comment
+- **THEN** that channel's feed gets no post for the comment
