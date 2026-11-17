@@ -28,6 +28,9 @@ what they may see and change.
   and a create dialog. [More](docs/app.md)
 - **Channel feeds.** `/tix subscribe infra` posts what happens in a project: created, moved, assigned,
   commented. [More](docs/notifications.md)
+- **Your language, your format.** English and Bulgarian, following each person's Mattermost language, and
+  settings for feed detail, comment text, card fields and buttons, date format, digest sections and the bot's
+  name and icon. [More](docs/setup.md#configure)
 - **Personal DMs.** When you are assigned, mentioned, or someone comments on your task. Never about your own
   actions.
 - **Thread sync.** With `/tix sync on`, replies under a card become tix comments, and tix comments come back

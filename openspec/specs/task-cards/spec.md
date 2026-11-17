@@ -96,17 +96,25 @@ poster SHALL be removed before the message is saved.
 
 A card SHALL be coloured by the category of the task's state (todo grey, in_progress blue, blocked and
 waiting amber, done green, cancelled dark), SHALL be titled with the reference and title linking to the task
-in tix, SHALL show the status label, assignee, priority, due date and tags when set, and SHALL carry the footer
-`tix · <project name>`.
+in tix, SHALL show the fields the CardFields setting lists (status label, assignee, priority, due date and tags
+when set; all of them by default), in that order, and SHALL carry the footer `tix · <project name>` when it lists
+project, else `tix`. Field names and button labels SHALL be in the server's default language, since a card is a
+channel post; workflow state labels SHALL be shown as tix sends them. The due date SHALL follow the DateFormat
+setting and be dated in the time zone of the person the card is drawn for.
 
 #### Scenario: Task in progress
 - **WHEN** a card is drawn for a task in a state of category in_progress
 - **THEN** the card is blue and its Status field shows the state's label
 
+#### Scenario: Fewer fields
+- **WHEN** CardFields is `due, status`
+- **THEN** the card shows Due then Status, and its footer is `tix`
+
 ### Requirement: Card buttons
 
-A card SHALL offer up to three transitions the workflow allows from the task's current state, the ones that
-move work forward first, plus "Assign to me" while the task is not finished and "Comment". A button SHALL act
+A card SHALL offer up to CardButtons (0 to 3, default 3) transitions the workflow allows from the task's current
+state, the ones that move work forward first, plus "Assign to me" while the task is not finished (unless
+ShowAssignButton is off) and "Comment" (unless ShowCommentButton is off). A button SHALL act
 with the tix token of the person who clicks it, after checking that they can read the post's channel and that
 the post shows that task. A person who is not connected SHALL get an ephemeral message pointing to
 `/tix connect`.
@@ -163,13 +171,19 @@ announced in the channel by the bot. Sync is off by default.
 With sync on, a person's reply in a thread that shows a task card SHALL be added to that task as a tix comment
 with the replier's own token. When the thread shows cards for several tasks, the reply SHALL go to the tasks it
 names, and to none when it names none of them. A replier who is not connected SHALL get one ephemeral hint to
-run `/tix connect`, once, and nothing is mirrored. Bot posts, system posts, webhook posts and edits SHALL NOT be
-mirrored, and a post SHALL be mirrored at most once. Each mirrored comment SHALL be recorded in the store
+run `/tix connect`, once, and nothing is mirrored. Bot posts, system posts, webhook posts, edits and posts the
+plugin's webapp made on a person's behalf (marked with the `from_tix_plugin` prop, such as the create dialog's
+"Post link in thread") SHALL NOT be mirrored, and a post SHALL be mirrored at most once. The marker is set by the
+client, so it SHALL only ever be used to skip mirroring, never to grant anything. Each mirrored comment SHALL be recorded in the store
 (`store.MarkMirrored`) by comment id and by task, author and text, before and after it is created.
 
 #### Scenario: Reply mirrored
 - **WHEN** sync is on and Bob replies "on it" in the thread of the infra-42 card
 - **THEN** tix gets the comment "on it" on infra-42, made with Bob's token
+
+#### Scenario: The create dialog's link post
+- **WHEN** sync is on and alice creates a task from a thread message with "Post link in thread"
+- **THEN** the link message is posted as alice and is not added to the task as a comment
 
 #### Scenario: Unconnected replier
 - **WHEN** sync is on and someone who has not run `/tix connect` replies in a card thread

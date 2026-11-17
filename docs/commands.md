@@ -1,6 +1,8 @@
 # Commands
 
-Everything is under `/tix`; `/tix help` lists what you may run.
+Everything is under `/tix`; `/tix help` lists what you may run. Replies are in your Mattermost language (English
+or Bulgarian); command names and options such as `mine`, `--assign` or `status:` stay as written here in every
+language.
 
 ## Your account
 
@@ -17,7 +19,7 @@ Everything is under `/tix`; `/tix help` lists what you may run.
 
 | Command | Who | What it does |
 | --- | --- | --- |
-| `/tix subscribe <project\|all> [events]`, `unsubscribe`, `subscriptions` | channel admins | Project activity in the channel (see [notifications](notifications.md)). |
+| `/tix subscribe <project\|all> [events] [--detail ...] [--comments ...] [--people ...]`, `unsubscribe`, `subscriptions` | channel admins | Project activity in the channel (see [notifications](notifications.md)). |
 | `/tix sync on\|off` | channel admins | Mirror card threads to tix comments and back (see [cards](cards.md)). |
 | `/tix channel project <key>\|none` | channel admins | The channel's default project. |
 | `/tix webhook setup\|status\|remove` | system admins | Register the tix webhook. |
@@ -33,7 +35,7 @@ the task can go to.
 | `/tix new [project] <title> [--assign @user\|me] [--priority high] [--post] [--raw]` | Create a task, in the channel's default project when you name none. The title takes tix quick-add tokens (`!high #tag @user due:fri +project`); `--post` announces it in the channel, `--raw` keeps the title as typed. |
 | `/tix search <text> [project] [filter] [open]` | Full-text search over titles and bodies, top 15 with status and assignee. Finished tasks are included unless you add `open`. |
 | `/tix mine [filter]` | Same as `/tix list mine`. |
-| `/tix due [project] [filter]` | Your open tasks due today or overdue, soonest first. |
+| `/tix due [project] [filter]` | Your open tasks due today or overdue, soonest first. "Today" is in your Mattermost time zone; a due date without a time is that whole day. |
 | `/tix channel` | Show the channel's default project. |
 | `/tix channel project <key>\|none` | Channel admins: set or clear the channel's default project, used by `/tix new` and the create reaction. |
 | `/tix show <ref>` | Status, assignee, priority, due date, tags, description excerpt and the last three comments. |

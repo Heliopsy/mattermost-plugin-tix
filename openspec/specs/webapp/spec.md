@@ -100,6 +100,17 @@ The plugin SHALL reject a missing or overlong title, a priority outside 1 to 5, 
 - **WHEN** tix answers 500 or cannot be reached
 - **THEN** the plugin answers 502 without tix's response body
 
+### Requirement: The person's language
+Every text of the webapp SHALL go through react-intl with an English default, and the plugin SHALL register its English and Bulgarian catalogs, so the sidebar, task view and create modal follow the person's Mattermost language and fall back to English for any other. Error messages from the plugin server SHALL be shown as the server wrote them, in the requesting person's language. A link the create modal posts for the person SHALL carry the `from_tix_plugin` prop so thread sync does not copy it to tix.
+
+#### Scenario: Bulgarian user
+- **WHEN** a person whose Mattermost language is Bulgarian opens the sidebar
+- **THEN** its tabs read "Моите" and "Проект", and the task states read as tix names them
+
+#### Scenario: Unsupported language
+- **WHEN** a person's Mattermost language is German
+- **THEN** the webapp shows English
+
 ### Requirement: Audit
 Create, update, transition, comment and connect SHALL write a Mattermost audit record with the task reference and never the content.
 

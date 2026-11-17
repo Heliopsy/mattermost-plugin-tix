@@ -60,7 +60,15 @@ and `--post` SHALL be accepted.
 
 `/tix show <ref>` SHALL reply with the task's title linked to tix, its status label from the project's
 workflow, assignee (an @mention when linked), priority, due date (marked overdue when past), tags, an excerpt
-of its description and its last three comments.
+of its description and its last three comments, in the caller's Mattermost language. Due dates SHALL follow the
+DateFormat setting. A due_at of exactly midnight UTC SHALL be read as a bare date, the same calendar day in every
+time zone, and is overdue only once that day is over in the caller's Mattermost time zone; any other due_at is
+overdue once it has passed.
+
+#### Scenario: Due today, created in the morning
+
+- **WHEN** a person in Europe/Sofia runs `/tix new infra Pay the bill due:today` at 09:00
+- **THEN** the reply shows today's date as the due date and does not say overdue
 
 #### Scenario: Task with many comments
 
@@ -98,8 +106,10 @@ GET /tasks query parameters. A listing SHALL print at most 50 tasks and say when
 full-text search over title and body) with the filter terms of `/tix list`; a bare word after the first that is
 a visible project key SHALL pick that project. A search SHALL include finished tasks unless `open` is given,
 and SHALL print at most 15 tasks, each linked, with its status label and assignee. `/tix mine [filter]` SHALL be
-`/tix list mine [filter]`. `/tix due [project] [filter]` SHALL list the caller's open tasks due before the end
-of today (UTC), overdue ones included, sorted by `due_at` ascending, at most 15.
+`/tix list mine [filter]`. `/tix due [project] [filter]` SHALL list the caller's open tasks due by the end of
+today in their Mattermost time zone, overdue ones included, sorted by `due_at` ascending, at most 15; a bare
+due date of tomorrow SHALL NOT be listed. The `due:today` and `due:overdue` filter terms SHALL use the same
+calendar rule.
 
 #### Scenario: Search without text
 
@@ -113,8 +123,13 @@ of today (UTC), overdue ones included, sorted by `due_at` ascending, at most 15.
 
 #### Scenario: Due today
 
-- **WHEN** a person runs `/tix due` on 17.11.2026
-- **THEN** tix is asked for the caller's actor as `assignee`, `due_before=2026-11-18T00:00:00Z`, `sort=due_at` and `direction=asc`
+- **WHEN** a person whose time zone is UTC runs `/tix due` on 17.11.2026
+- **THEN** tix is asked for the caller's actor as `assignee`, `due_before=2026-11-17T23:59:59Z`, `sort=due_at` and `direction=asc`
+
+#### Scenario: Due today in another time zone
+
+- **WHEN** a person in Europe/Sofia runs `/tix due` at 09:00 local time
+- **THEN** tix is asked for `due_before=2026-11-17T21:59:59Z`, and a bare due date of 18.11.2026 that tix returns is dropped
 
 ### Requirement: Channel default project
 
