@@ -18,6 +18,7 @@ import (
 	"github.com/heliopsy/mattermost-plugin-tix/server/app"
 	"github.com/heliopsy/mattermost-plugin-tix/server/cards"
 	"github.com/heliopsy/mattermost-plugin-tix/server/command"
+	"github.com/heliopsy/mattermost-plugin-tix/server/digest"
 	"github.com/heliopsy/mattermost-plugin-tix/server/link"
 	"github.com/heliopsy/mattermost-plugin-tix/server/notify"
 	"github.com/heliopsy/mattermost-plugin-tix/server/store"
@@ -37,6 +38,7 @@ type Plugin struct {
 	commands *command.Registry
 	cards    *cards.Feature
 	tasks    *tasks.Feature
+	digest   *digest.Feature
 }
 
 // feature is what every feature package offers.
@@ -71,15 +73,27 @@ func (p *Plugin) OnActivate() error {
 	p.http = api.NewHandler(p.API)
 	p.commands = command.NewRegistry(p.app)
 	p.cards = cards.New(p.app)
+	p.digest = digest.New(p.app)
 	linker := link.New(p.app)
 	p.tasks = tasks.New(p.app)
 	web := webapi.New(p.app, linker.ConnectByEmail)
 	web.ChannelProject = p.tasks.ChannelProject
-	for _, f := range []feature{linker, p.tasks, p.cards, notify.New(p.app, p.cards), web} {
+	for _, f := range []feature{linker, p.tasks, p.cards, notify.New(p.app, p.cards), web, p.digest} {
 		p.commands.Add(f.Commands()...)
 		f.Routes(p.http)
 	}
-	return p.commands.Register(client)
+	if err := p.commands.Register(client); err != nil {
+		return err
+	}
+	return p.digest.Start(p.API)
+}
+
+// OnDeactivate stops the digest job on this node.
+func (p *Plugin) OnDeactivate() error {
+	if p.digest == nil {
+		return nil
+	}
+	return p.digest.Stop()
 }
 
 // ServeHTTP is invoked for requests to /plugins/{plugin_id}.
