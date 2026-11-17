@@ -474,6 +474,59 @@ def _(s):
     check("@alice" not in joined and "@bob" not in joined, "a feed post pings people")
 
 
+@scenario("settings: detailed feeds and ISO dates, switched with mmctl config patch")
+def _(s):
+    alice = s.u["alice"]
+    tomorrow = time.strftime("%Y-%m-%d", time.gmtime(time.time() + 86400))
+    s.env.configure_plugin(feeddetail="detailed", dateformat="iso")
+    try:
+        since = int(time.time() * 1000)
+        ref = ref_in(alice.cmd(s.town, f"/tix new rev Detailed feed task due:{tomorrow} --assign @bob"))
+
+        def detailed():
+            return [p["message"] for p in alice.posts(s.feed["id"], since)
+                    if p["user_id"] == s.bot_id and ref in p["message"] and "created" in p["message"]]
+        msg = eventually(detailed, 30, what="the detailed feed post")[0]
+        contains(msg, "Assignee: **bob**", f"Due: **{tomorrow}**")
+        card = s.card_post(alice, ref)
+        due = [f["value"] for f in card["props"]["attachments"][0]["fields"] if f["title"] == "Due"]
+        check(due == [tomorrow], f"card due field {due}, want the ISO date")
+    finally:
+        s.env.configure_plugin(feeddetail="compact", dateformat="eu")
+    since = int(time.time() * 1000)
+    alice.cmd(s.town, f"/tix comment {ref} back to compact")
+
+    def compact():
+        return [p["message"] for p in alice.posts(s.feed["id"], since) if p["user_id"] == s.bot_id and "back to compact" in p["message"]]
+    msg = eventually(compact, 30, what="the compact feed post")[0]
+    check("Assignee:" not in msg, f"still detailed after switching back: {msg!r}")
+
+
+@scenario("per-feed override: --detail card --comments none")
+def _(s):
+    alice, bob = s.u["alice"], s.u["bob"]
+    out = alice.cmd(s.feed, "/tix subscribe rev all --detail card --comments none")
+    contains(out, "now gets tix activity", "--detail card --comments none")
+    contains(alice.cmd(s.feed, "/tix subscriptions"), "`--detail card --comments none`")
+    try:
+        since = int(time.time() * 1000)
+        ref = ref_in(alice.cmd(s.town, "/tix new rev Card feed task"))
+        bob.cmd(s.town, f"/tix comment {ref} A secret comment")
+
+        def cards():
+            out = [p for p in alice.posts(s.feed["id"], since) if p["user_id"] == s.bot_id
+                   and any(ref in (a.get("text") or "") for a in (p.get("props") or {}).get("attachments") or [])]
+            return out if len(out) >= 2 else None
+        posts = eventually(cards, 30, what="the card feed posts")
+        texts = [a["text"] for p in posts for a in p["props"]["attachments"]]
+        check(any("commented on" in t for t in texts), f"no comment card: {texts}")
+        check(not any("A secret comment" in t for t in texts), "--comments none still shows the comment text")
+        check(all(not p["message"] for p in posts), "a card feed post has message text")
+    finally:
+        contains(alice.cmd(s.feed, "/tix subscribe rev all"), "now gets tix activity")
+    check("--detail" not in alice.cmd(s.feed, "/tix subscriptions"), "the override survived resubscribing")
+
+
 @scenario("feed: the infra project is not posted into a rev feed")
 def _(s):
     since = int(time.time() * 1000)
@@ -753,7 +806,7 @@ def _(s):
 def _(s):
     alice = s.u["alice"]
     # tix stores a date without a time as midnight UTC; the reported bug showed it as overdue.
-    out = alice.cmd(s.town, "/tix new infra Pay the hosting bill due:today")
+    out = alice.cmd(s.town, "/tix new infra Pay the hosting bill due:today --assign me")
     ref = s.refs["bare_today"] = ref_in(out)
     contains(out, "Due:**")
     check("overdue" not in out, f"a task due today shown as overdue: {out!r}")
@@ -902,6 +955,27 @@ def _(s):
     contains(dm["message"], s.refs["today"])
     check("Your tix digest" not in dm["message"], "the digest was sent although it is off")
     contains(alice.cmd(s.town, "/tix reminders off"), "reminders are **off**")
+
+
+# --- languages ----------------------------------------------------------------------------
+
+@scenario("a Bulgarian user gets Bulgarian replies and DMs; the channel stays English")
+def _(s):
+    carol, alice = s.u["carol"], s.u["alice"]
+    carol.api("PUT", f"/users/{carol.id}/patch", {"locale": "bg"}, expect=200)
+    try:
+        contains(carol.cmd(s.town, "/tix nosuchcommand"), "Непозната команда", "| Команда | Какво прави |")
+        contains(alice.cmd(s.town, "/tix nosuchcommand"), "Unknown command")
+        since = int(time.time() * 1000)
+        ref = ref_in(alice.cmd(s.town, "/tix new infra A task for carol"))
+        alice.cmd(s.town, f"/tix assign {ref} @carol")
+        dm = eventually(lambda: [p for p in s.dms(carol, since) if ref in p["message"]], 30, what="carol's DM")[0]
+        contains(dm["message"], "ти възложи")
+        card = s.card_post(carol, ref)
+        titles = [f["title"] for f in card["props"]["attachments"][0]["fields"]]
+        check("Status" in titles, f"a card in the channel is not in the server's language: {titles}")
+    finally:
+        carol.api("PUT", f"/users/{carol.id}/patch", {"locale": "en"}, expect=200)
 
 
 # --- disconnect ---------------------------------------------------------------------------
