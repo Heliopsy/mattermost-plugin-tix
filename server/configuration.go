@@ -29,6 +29,7 @@ type configuration struct {
 	CardStyle     string
 	// CardQuietMinutes is a number setting; the System Console may store it as a string.
 	CardQuietMinutes json.Number
+	CreateEmoji      string
 }
 
 // Clone shallow copies the configuration. Your implementation may require a deep copy if

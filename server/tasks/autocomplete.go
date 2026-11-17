@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/url"
+	"strings"
 
 	"github.com/mattermost/mattermost/server/public/model"
 
@@ -68,15 +69,23 @@ func (e *env) refItems(cx context.Context) []model.AutocompleteListItem {
 	return out
 }
 
-// autocompleteProjects suggests project keys; with list=1 also mine and all, for /tix list.
+// autocompleteProjects suggests project keys, the channel's default first; with list=1 also
+// mine and all, for /tix list, and with channel=1 also none, for /tix channel project.
 func (f *Feature) autocompleteProjects(w http.ResponseWriter, r *http.Request) {
 	forList := r.URL.Query().Get("list") == "1"
+	forChannel := r.URL.Query().Get("channel") == "1"
+	def := f.ChannelProject(api.UserID(r), r.URL.Query().Get("channel_id"))
 	f.autocomplete(w, r, func(_ context.Context, e *env) []model.AutocompleteListItem {
-		return e.projectItems(forList)
+		out := e.projectItems(forList, def)
+		if forChannel {
+			out = append(out, model.AutocompleteListItem{Item: "none", HelpText: "Clear the channel's default project"})
+		}
+		return out
 	})
 }
 
-func (e *env) projectItems(forList bool) []model.AutocompleteListItem {
+// projectItems lists the visible projects; def, when set, comes first and says so.
+func (e *env) projectItems(forList bool, def string) []model.AutocompleteListItem {
 	var out []model.AutocompleteListItem
 	if forList {
 		out = append(out,
@@ -88,13 +97,18 @@ func (e *env) projectItems(forList bool) []model.AutocompleteListItem {
 	if err != nil {
 		return out
 	}
+	var rest []model.AutocompleteListItem
 	for _, p := range ps {
 		if p.ArchivedAt != "" {
 			continue
 		}
-		out = append(out, model.AutocompleteListItem{Item: p.Key, HelpText: p.Name})
+		if def != "" && strings.EqualFold(p.Key, def) {
+			out = append(out, model.AutocompleteListItem{Item: p.Key, HelpText: p.Name + " (this channel's default)"})
+			continue
+		}
+		rest = append(rest, model.AutocompleteListItem{Item: p.Key, HelpText: p.Name})
 	}
-	return out
+	return append(out, rest...)
 }
 
 // autocompleteStates suggests the states the task named earlier on the line can move to.

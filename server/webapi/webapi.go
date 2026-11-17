@@ -33,6 +33,9 @@ type Connector func(userID string) (string, error)
 type Feature struct {
 	a       *app.App
 	connect Connector
+	// ChannelProject returns a channel's default project for a user who can read it, else "".
+	// The tasks feature owns it; nil leaves default_project out of GET /me.
+	ChannelProject func(userID, channelID string) string
 }
 
 // New returns the feature. connect may be nil, which turns POST /connect off.
@@ -226,6 +229,8 @@ type MeResponse struct {
 	CanConnect bool    `json:"can_connect"`
 	Actor      *Person `json:"actor,omitempty"`
 	TenantKey  string  `json:"tenant_key,omitempty"`
+	// DefaultProject is the default project of the channel_id query parameter, when set.
+	DefaultProject string `json:"default_project,omitempty"`
 }
 
 func (f *Feature) me(w http.ResponseWriter, r *http.Request) {
@@ -243,6 +248,9 @@ func (f *Feature) me(w http.ResponseWriter, r *http.Request) {
 		resp.Actor = &Person{ActorID: l.ActorID, Name: l.Handle, UserID: uid}
 		if u, appErr := f.a.API.GetUser(uid); appErr == nil {
 			resp.Actor.Username = u.Username
+		}
+		if ch := r.URL.Query().Get("channel_id"); f.ChannelProject != nil && model.IsValidId(ch) {
+			resp.DefaultProject = f.ChannelProject(uid, ch)
 		}
 	}
 	api.WriteJSON(w, r, http.StatusOK, resp)

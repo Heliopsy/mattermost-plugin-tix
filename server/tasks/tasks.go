@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
-// Package tasks is /tix for working tasks: new, show, list, start, done, close, move, reopen,
-// comment and assign, plus the autocomplete lists behind them. Every call acts as the person
-// who typed the command, through their own tix token.
+// Package tasks is /tix for working tasks: new, show, list, search, mine, due, start, done,
+// close, move, reopen, comment, assign and channel, tasks made from a reaction, and the
+// autocomplete lists behind them. Every call acts as the person who caused it, through their
+// own tix token.
 package tasks
 
 import (
@@ -91,12 +92,36 @@ func (f *Feature) Commands() []command.Sub {
 		{
 			Name: "new", Aliases: []string{"add", "create"},
 			Hint: "[project] <title> [--assign @user|me] [--priority high] [--post]",
-			Help: "Create a task; the title takes tix quick-add tokens: !high #tag @user due:fri",
+			Help: "Create a task, in the channel's default project unless you name one; the title takes tix quick-add tokens: !high #tag @user due:fri",
 			Autocomplete: func(n *model.AutocompleteData) {
-				n.AddDynamicListArgument("Project (optional)", f.url(routeProjects), false)
+				n.AddDynamicListArgument("Project (optional; the channel's default is listed first)", f.url(routeProjects), false)
 				n.AddTextArgument("Title, with optional !priority #tag @user due:fri --post", "<title>", "")
 			},
 			Run: f.cmdNew,
+		},
+		{
+			Name: "search", Aliases: []string{"find"}, Hint: "<text> [project] [filter] [open]",
+			Help: "Full-text search over titles and bodies, finished tasks included unless you add open",
+			Autocomplete: func(n *model.AutocompleteData) {
+				n.AddTextArgument("Text, then optionally a project, filter terms (status:todo tag:ops @user) and open", "<text> [project] [filter] [open]", "")
+			},
+			Run: f.cmdSearch,
+		},
+		{Name: "mine", Hint: "[filter]", Help: "Your open tasks (same as /tix list mine)", Autocomplete: func(n *model.AutocompleteData) {
+			n.AddTextArgument("tix filter terms: status:todo tag:ops priority:high", "[filter]", "")
+		}, Run: f.cmdMine},
+		{Name: "due", Hint: "[project] [filter]", Help: "Your open tasks due today or overdue, soonest first", Autocomplete: func(n *model.AutocompleteData) {
+			n.AddDynamicListArgument("Project (optional)", f.url(routeProjects), false)
+		}, Run: f.cmdDue},
+		{
+			Name: "channel", Hint: "[project <key>|none]",
+			Help: "Show this channel's tix settings; channel admins set its default project for /tix new and the create reaction",
+			Autocomplete: func(n *model.AutocompleteData) {
+				p := model.NewAutocompleteData("project", "<key>|none", "Set or clear this channel's default project (channel admins)")
+				p.AddDynamicListArgument("Project key, or none", f.url(routeProjects)+"?channel=1", true)
+				n.AddCommand(p)
+			},
+			Run: f.cmdChannel,
 		},
 		{Name: "show", Aliases: []string{"view"}, Hint: "<ref>", Help: "Show a task with its latest comments", Autocomplete: refArg, Run: f.cmdShow},
 		{
@@ -162,6 +187,9 @@ func (f *Feature) cmdNew(c *command.Ctx, args []string) *model.CommandResponse {
 	if err != nil {
 		return command.Ephemeral(err.Error())
 	}
+	if na.Project == "" {
+		na.Project = f.ChannelProject(c.Args.UserId, c.Args.ChannelId)
+	}
 	cx, cancel := ctx()
 	defer cancel()
 	t, err := e.create(cx, na)
@@ -207,6 +235,34 @@ func (f *Feature) cmdList(c *command.Ctx, args []string) *model.CommandResponse 
 		cx, cancel := ctx()
 		defer cancel()
 		return e.list(cx, q)
+	})
+}
+
+func (f *Feature) cmdSearch(c *command.Ctx, args []string) *model.CommandResponse {
+	return f.withEnv(c, func(e *env) (string, error) {
+		q, err := parseSearch(args, e.isProject, e.filterActor, e.now())
+		if err != nil {
+			return "", err
+		}
+		cx, cancel := ctx()
+		defer cancel()
+		return e.flat(cx, q, "No tasks match.")
+	})
+}
+
+func (f *Feature) cmdMine(c *command.Ctx, args []string) *model.CommandResponse {
+	return f.cmdList(c, append([]string{"mine"}, args...))
+}
+
+func (f *Feature) cmdDue(c *command.Ctx, args []string) *model.CommandResponse {
+	return f.withEnv(c, func(e *env) (string, error) {
+		q, err := parseDue(args, e.isProject, e.filterActor, e.now())
+		if err != nil {
+			return "", err
+		}
+		cx, cancel := ctx()
+		defer cancel()
+		return e.flat(cx, q, "Nothing of yours is due today or overdue.")
 	})
 }
 

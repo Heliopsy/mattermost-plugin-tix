@@ -2,8 +2,8 @@
 
 ## Purpose
 
-The `/tix` subcommands for working tasks from Mattermost: create, show, list, move through the workflow,
-comment and assign. Every call acts as the person who typed the command, through the tix token they linked
+The `/tix` subcommands for working tasks from Mattermost: create, show, list, search, move through the
+workflow, comment and assign, a channel's default project, and creating a task by reacting to a message. Every call acts as the person who typed the command, through the tix token they linked
 with `/tix connect`, so tix applies that person's permissions and records them as the author.
 
 ## Requirements
@@ -46,6 +46,11 @@ and `--post` SHALL be accepted.
 - **WHEN** the title names `@carol`, a Mattermost user who has not linked tix
 - **THEN** no task is created and the reply says carol has not connected tix
 
+#### Scenario: Channel default project
+
+- **WHEN** a person runs `/tix new <title>` without a project in a channel whose default project is infra
+- **THEN** tix receives `project_ref` infra; a project named on the line or with `--project` wins over the default
+
 #### Scenario: Announce in the channel
 
 - **WHEN** the command carries `--post`
@@ -86,6 +91,81 @@ GET /tasks query parameters. A listing SHALL print at most 50 tasks and say when
 
 - **WHEN** a filter term has an unknown key, or `~` on a key other than title, body or text
 - **THEN** the reply names the term and nothing is fetched
+
+### Requirement: Search, mine and due
+
+`/tix search <text...> [project] [filter terms...] [open]` SHALL send the bare words as GET /tasks `q` (tix's
+full-text search over title and body) with the filter terms of `/tix list`; a bare word after the first that is
+a visible project key SHALL pick that project. A search SHALL include finished tasks unless `open` is given,
+and SHALL print at most 15 tasks, each linked, with its status label and assignee. `/tix mine [filter]` SHALL be
+`/tix list mine [filter]`. `/tix due [project] [filter]` SHALL list the caller's open tasks due before the end
+of today (UTC), overdue ones included, sorted by `due_at` ascending, at most 15.
+
+#### Scenario: Search without text
+
+- **WHEN** a person runs `/tix search tag:ops`
+- **THEN** the reply asks what to look for and nothing is fetched
+
+#### Scenario: Open search
+
+- **WHEN** a person runs `/tix search keys open`
+- **THEN** tix is asked for `q=keys` with the open-only `not_status` filter, and finished tasks are dropped
+
+#### Scenario: Due today
+
+- **WHEN** a person runs `/tix due` on 17.11.2026
+- **THEN** tix is asked for the caller's actor as `assignee`, `due_before=2026-11-18T00:00:00Z`, `sort=due_at` and `direction=asc`
+
+### Requirement: Channel default project
+
+`/tix channel` SHALL show the channel's default project. `/tix channel project <key>` SHALL set it and
+`/tix channel project none` SHALL clear it, only for a person holding the channel's manage-roles permission
+(channel, team and system admins), checked on the server; the key SHALL be a project the person can see in
+tix. A change SHALL write the audit record `tixSetChannelProject` with the channel id and project key. The
+default SHALL be readable, through one check, only by people who can read the channel: by `/tix new`, the
+create reaction, the project autocomplete (which lists it first, marked as the channel's default) and the
+webapp's `GET /api/v1/me?channel_id=`.
+
+#### Scenario: Member tries to set it
+
+- **WHEN** a channel member who is not a channel admin runs `/tix channel project infra`
+- **THEN** the reply says only channel admins can change it and nothing is stored
+
+#### Scenario: Unknown project
+
+- **WHEN** a channel admin names a project they cannot see in tix
+- **THEN** the reply says so and nothing is stored
+
+### Requirement: Create a task from a reaction
+
+Reacting to a message with the emoji of the `CreateEmoji` setting (default `ticket`, colons optional) SHALL
+create a task as the reacting person, through their own token, in the channel's default project, with the
+message's first non-empty line (trimmed, at most 120 characters) as the title, quick-add parsing off, and the
+message plus a permalink to it as the body. The bot SHALL then reply in the message's thread
+"@person created <ref>", with the reference in the post prop `tix_created_ref`. One task SHALL be made per
+message and emoji: the first reaction claims the message atomically in the KV store and records the reference.
+Reactions by the bot, by people who cannot read the channel, on system messages and with other emoji SHALL be
+ignored. Nothing SHALL remove the reaction.
+
+#### Scenario: Reactor not connected
+
+- **WHEN** a person who has not linked tix reacts with the emoji
+- **THEN** they get an ephemeral hint to run `/tix connect`, no task is created and the reaction stays
+
+#### Scenario: No default project
+
+- **WHEN** the channel has no default project
+- **THEN** the reactor gets an ephemeral asking a channel admin to run `/tix channel project <key>` or to use **Create tix task** from the message menu, and no task is created
+
+#### Scenario: Second reaction
+
+- **WHEN** anyone reacts with the emoji to a message that already has a task
+- **THEN** no task is created and they get an ephemeral linking the existing reference
+
+#### Scenario: Two reactions at once
+
+- **WHEN** a second reaction arrives while the first is still creating the task
+- **THEN** the second gets an ephemeral that the task is being created; a claim older than two minutes is taken over
 
 ### Requirement: Move along the workflow
 
@@ -131,8 +211,8 @@ that Mattermost user's linked tix actor, and any other word is passed to tix as 
 ### Requirement: Autocomplete lists
 
 The plugin SHALL serve dynamic autocomplete lists under `/api/v1/autocomplete/` for references (the caller's
-open assigned tasks, then open tasks they created, most recently updated first), project keys (with `mine`
-and `all` for `/tix list`) and the states the referenced task can move to, marking those that need a comment.
+open assigned tasks, then open tasks they created, most recently updated first), project keys (the channel's default first, with `mine`
+and `all` for `/tix list` and `none` for `/tix channel project`) and the states the referenced task can move to, marking those that need a comment.
 The routes SHALL take the user only from the `Mattermost-User-ID` header and SHALL answer an empty list when
 the user is not linked or tix fails.
 

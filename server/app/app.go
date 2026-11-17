@@ -42,6 +42,8 @@ type Config struct {
 	CardStyle string
 	// CardQuietMinutes: a task carded in a channel gets no new card there for this long (0 = default 10).
 	CardQuietMinutes int
+	// CreateEmoji is the reaction that turns a message into a task, without colons.
+	CreateEmoji string
 }
 
 // ErrNotLinked is returned when the acting user has not run /tix connect.
