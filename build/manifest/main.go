@@ -168,7 +168,8 @@ func applyManifest(manifest *model.Manifest) error {
 		if err != nil {
 			return err
 		}
-		manifestStr := string(manifestBytes)
+		// A backtick would end the raw string literal; \u0060 is the same character to a JSON parser.
+		manifestStr := strings.ReplaceAll(string(manifestBytes), "`", `\u0060`)
 
 		// write generated code to file by using Go file template.
 		if err := os.WriteFile(
@@ -192,6 +193,8 @@ func applyManifest(manifest *model.Manifest) error {
 
 		// Escape newlines
 		manifestStr = strings.ReplaceAll(manifestStr, `\n`, `\\n`)
+		// A backtick would end the template literal.
+		manifestStr = strings.ReplaceAll(manifestStr, "`", `\u0060`)
 
 		// write generated code to file by using JS file template.
 		if err := os.WriteFile(
