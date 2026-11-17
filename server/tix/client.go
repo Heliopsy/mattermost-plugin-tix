@@ -159,7 +159,7 @@ type Task struct {
 	Title            string         `json:"title"`
 	Body             string         `json:"body"`
 	Status           string         `json:"status"`
-	Priority         string         `json:"priority"`
+	Priority         int            `json:"priority"`
 	ProjectID        string         `json:"project_id"`
 	AssigneeActorID  string         `json:"assignee_actor_id"`
 	CreatorActorID   string         `json:"creator_actor_id"`
@@ -250,7 +250,7 @@ type CreateTask struct {
 	Title    string   `json:"title"`
 	Body     string   `json:"body,omitempty"`
 	Assignee string   `json:"assignee_actor_id,omitempty"`
-	Priority string   `json:"priority,omitempty"`
+	Priority int      `json:"priority,omitempty"`
 	Tags     []string `json:"tags,omitempty"`
 	Status   string   `json:"status,omitempty"`
 }
