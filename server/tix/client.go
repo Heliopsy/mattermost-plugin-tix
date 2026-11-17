@@ -253,6 +253,8 @@ type CreateTask struct {
 	Priority int      `json:"priority,omitempty"`
 	Tags     []string `json:"tags,omitempty"`
 	Status   string   `json:"status,omitempty"`
+	// Parse reads Title as a quick-add line ("Fix login !high #auth @raj due:fri +infra").
+	Parse bool `json:"parse,omitempty"`
 }
 
 // WhoAmI returns the actor the token belongs to.

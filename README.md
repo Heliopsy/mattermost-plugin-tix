@@ -46,6 +46,28 @@ This will produce a single plugin file (with support for multiple architectures)
 dist/com.example.my-plugin.tar.gz
 ```
 
+## Commands
+
+Task commands act as you, through the tix token you linked with `/tix connect`. Replies are only visible to you
+unless you ask for a channel post. References autocomplete from your open tasks; `/tix move` suggests the states
+the task can go to.
+
+| Command | What it does |
+| --- | --- |
+| `/tix new [project] <title> [--assign @user\|me] [--priority high] [--post] [--raw]` | Create a task. The title takes tix quick-add tokens (`!high #tag @user due:fri +project`); `--post` announces it in the channel, `--raw` keeps the title as typed. |
+| `/tix show <ref>` | Status, assignee, priority, due date, tags, description excerpt and the last three comments. |
+| `/tix list [mine\|all\|<project>] [filter]` | Your open tasks by default, grouped by status. A project key lists that project; `all` includes finished tasks; filter terms follow tix's filter language, e.g. `status:todo -tag:ops @bob priority:high due:week title~api`. |
+| `/tix start <ref> [comment]` | Move to the workflow's in-progress state. |
+| `/tix done <ref> [comment]` | Move to the workflow's done state. |
+| `/tix close <ref> [comment]` | Close without doing it: the cancelled state, or done when the workflow has none. |
+| `/tix reopen <ref> [comment]` | Move a finished task back to an open state. |
+| `/tix move <ref> <state> [comment]` | Move to a state by key or label. |
+| `/tix comment <ref> <text>` | Comment on a task (Markdown, line breaks kept). |
+| `/tix assign <ref> <@user\|me\|none>` | Assign to a linked Mattermost user, yourself or a tix handle; `none` unassigns. |
+
+Moves follow the task's workflow. When there is no direct transition, the reply lists the states reachable from
+the current one and the shortest route; when a transition requires a comment, add it after the reference.
+
 ## Try the example
 
 Once the plugin is installed and enabled (System Console > Plugins > Plugin Management, or `make deploy`):
