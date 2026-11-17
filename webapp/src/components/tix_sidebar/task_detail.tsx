@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
 import {addComment, getTask, isNotLinked, transitionTask, updateTask} from 'client';
+import {errorText} from 'i18n';
 import {useCallback, useEffect, useState} from 'react';
 import {FormattedMessage, useIntl} from 'react-intl';
 import {useSelector} from 'react-redux';
@@ -56,11 +57,11 @@ export default function TaskDetail({taskRef, onBack, onChanged, onNotLinked}: Pr
                 onNotLinked();
                 return;
             }
-            setError((e as Error).message);
+            setError(errorText(intl, e));
         } finally {
             setLoading(false);
         }
-    }, [taskRef, onNotLinked]);
+    }, [taskRef, onNotLinked, intl]);
 
     useEffect(() => {
         load();
@@ -80,7 +81,7 @@ export default function TaskDetail({taskRef, onBack, onChanged, onNotLinked}: Pr
                 onNotLinked();
                 return false;
             }
-            setActionError((e as Error).message);
+            setActionError(errorText(intl, e));
             return false;
         } finally {
             setBusy(false);

@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
 import {connect} from 'client';
+import {errorText} from 'i18n';
 import {useState} from 'react';
-import {FormattedMessage} from 'react-intl';
+import {FormattedMessage, useIntl} from 'react-intl';
 
 import {SectionNotice} from '@mattermost/compass-ui/components/section-notice';
 
@@ -15,6 +16,7 @@ type Props = {
 
 // ConnectPrompt is shown to someone who has not connected Mattermost to tix yet.
 export default function ConnectPrompt({canConnect, onConnected}: Props) {
+    const intl = useIntl();
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState('');
 
@@ -25,7 +27,7 @@ export default function ConnectPrompt({canConnect, onConnected}: Props) {
             await connect();
             onConnected();
         } catch (e) {
-            setError((e as Error).message);
+            setError(errorText(intl, e));
         } finally {
             setBusy(false);
         }
