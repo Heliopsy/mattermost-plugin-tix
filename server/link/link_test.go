@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/heliopsy/mattermost-plugin-tix/server/app"
+	"github.com/heliopsy/mattermost-plugin-tix/server/i18n"
 	"github.com/heliopsy/mattermost-plugin-tix/server/store"
 )
 
@@ -54,12 +55,20 @@ func TestLinkWithTokenStoresThePersonsHandle(t *testing.T) {
 	a := app.New(papi, client, st, "bot", func() *app.Config { return &app.Config{TixURL: srv.URL, EncryptionKey: "test-key"} })
 
 	userID := model.NewId()
-	msg, err := New(a).linkWithToken(userID, "tix_pasted")
+	msg, err := New(a).linkWithToken(i18n.For("en"), userID, "tix_pasted")
 	require.NoError(t, err)
-	require.Contains(t, msg, "Carol Cole")
+	require.Equal(t, "Connected to tix as **Carol Cole** in tenant **Default**.", msg)
 	l, err := st.GetLink(userID)
 	require.NoError(t, err)
 	require.Equal(t, "carol", l.Handle)
 	require.Equal(t, "act-carol", l.ActorID)
 	require.Equal(t, "tok-1", l.TokenID)
+
+	// A Bulgarian speaker gets the answer in Bulgarian; an empty paste is refused in their language.
+	msg, err = New(a).linkWithToken(i18n.For("bg"), userID, "tix_pasted")
+	require.NoError(t, err)
+	require.Equal(t, "Свързан си с tix като **Carol Cole** в организация **Default**.", msg)
+	_, err = New(a).linkWithToken(i18n.For("bg"), userID, "")
+	require.Equal(t, "постави токен", app.ErrText(i18n.For("bg"), err))
+	require.ErrorIs(t, i18n.Wrap(errNoMatch, "link.err.email_unverified"), ErrNoMatch, "wrapped no-match errors still match")
 }
