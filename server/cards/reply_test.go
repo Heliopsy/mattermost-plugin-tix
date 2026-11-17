@@ -217,6 +217,10 @@ func TestSyncMirrorsReplies(t *testing.T) {
 	e.f.MessageHasBeenPosted(&plugin.Context{}, e.save(sys))
 	assert.Len(t, e.tix.comments, 1)
 
+	// A link the webapp posted for the person (create dialog, "Post link in thread") is not mirrored.
+	e.postIn(p.Id, e.bob, "Created tix task infra-1: Fix login", model.StringInterface{PropFromPlugin: "true"})
+	assert.Len(t, e.tix.comments, 1)
+
 	// Unlinked: one hint, ever, and nothing mirrored.
 	e.postIn(p.Id, e.carol, "me too", nil)
 	e.postIn(p.Id, e.carol, "hello?", nil)

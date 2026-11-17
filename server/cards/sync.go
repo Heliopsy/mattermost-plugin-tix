@@ -22,6 +22,11 @@ import (
 // propCommentID, on a bot post in a synced thread, is the tix comment it shows.
 const propCommentID = "tix_comment_id"
 
+// PropFromPlugin marks a post the plugin's webapp made on a person's behalf (the create dialog's
+// "Post link" message). Thread sync skips such posts. It is set by the client, so it is only ever
+// used to skip work, never to grant anything.
+const PropFromPlugin = "from_tix_plugin"
+
 // maxThreadComment caps the text of a tix comment posted into a thread.
 const maxThreadComment = 4000
 
@@ -124,10 +129,11 @@ func (f *Feature) syncCmd(c *command.Ctx, args []string) *model.CommandResponse 
 }
 
 // mirrorReply adds a person's reply in a synced card thread to the task as a tix comment, with
-// their own token. Bot, system and webhook posts are never mirrored, and a post at most once.
+// their own token. Bot, system and webhook posts and posts the plugin made for a person are never
+// mirrored, and a post at most once.
 func (f *Feature) mirrorReply(post *model.Post) {
 	if post.RootId == "" || post.Type != "" || post.UserId == f.a.BotID || post.GetProp(model.PostPropsFromWebhook) == "true" ||
-		post.GetProp("from_bot") == "true" || post.GetProp("from_plugin") == "true" {
+		post.GetProp("from_bot") == "true" || post.GetProp("from_plugin") == "true" || post.GetProp(PropFromPlugin) != nil {
 		return
 	}
 	body := strings.TrimSpace(post.Message)

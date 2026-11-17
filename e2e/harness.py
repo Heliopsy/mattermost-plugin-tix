@@ -341,8 +341,11 @@ class User:
                            {"channel_id": channel["id"], "team_id": channel["team_id"], "command": text}, expect=200)
         return (data or {}).get("text", "")
 
-    def post(self, channel, message, root_id=""):
-        _, p = self.api("POST", "/posts", {"channel_id": channel["id"], "message": message, "root_id": root_id}, expect=201)
+    def post(self, channel, message, root_id="", props=None):
+        body = {"channel_id": channel["id"], "message": message, "root_id": root_id}
+        if props:
+            body["props"] = props
+        _, p = self.api("POST", "/posts", body, expect=201)
         return p
 
     def get_post(self, post_id):

@@ -622,6 +622,16 @@ def _(s):
     check(len(back()) == 1, "the tix comment was posted twice")
 
 
+@scenario("/tix sync: a link the webapp posts for a person is not mirrored")
+def _(s):
+    alice, ref = s.u["alice"], s.refs["sync"]
+    # What the create dialog's "Post link in thread" sends: a post as the person, marked by the plugin.
+    alice.post(s.sync, f"Created tix task {ref}: Synced thread task", root_id=s.sync_root, props={"from_tix_plugin": "true"})
+    time.sleep(3)
+    _, cs, _ = s.env.tix_api("GET", f"/tasks/{ref}/comments")
+    check(not [c for c in cs["items"] if c["body"].startswith("Created tix task")], "the plugin's own link post was mirrored")
+
+
 @scenario("/tix sync off stops mirroring")
 def _(s):
     alice, ref = s.u["alice"], s.refs["sync"]

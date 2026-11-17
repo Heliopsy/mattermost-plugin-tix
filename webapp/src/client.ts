@@ -90,7 +90,11 @@ export const updateTask = (ref: string, input: UpdateTaskInput) => send<Task>('P
 export const transitionTask = (ref: string, to: string, comment?: string) => send<Task>('POST', `${taskPath(ref)}/transition`, {to, comment});
 export const addComment = (ref: string, body: string) => send<Comment>('POST', `${taskPath(ref)}/comments`, {body});
 
+// PROP_FROM_PLUGIN marks a post the plugin made on the user's behalf, so thread sync does not copy it to tix.
+// The server only uses it to skip such posts, never to trust them.
+export const PROP_FROM_PLUGIN = 'from_tix_plugin';
+
 // postMessage posts as the signed-in user through the Mattermost REST API, the way the host's own composer does.
 export function postMessage(channelId: string, rootId: string, message: string) {
-    return Client4.createPost({channel_id: channelId, root_id: rootId, message});
+    return Client4.createPost({channel_id: channelId, root_id: rootId, message, props: {[PROP_FROM_PLUGIN]: 'true'}});
 }
