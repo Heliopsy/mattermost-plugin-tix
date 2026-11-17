@@ -1,14 +1,14 @@
 # AGENTS.md (server)
 
-`server/api` and `server/channelstatus` show the authentication, permission, validation, audit, WebSocket and error-handling rules below; copy their patterns.
+`server/api`, `server/cards` (actions.go) and `server/link` show the authentication, permission, validation, audit and error-handling rules below; copy their patterns.
 
 ## Security
 
 On `/plugins/{id}/...` requests the server strips spoofed `Mattermost-User-ID` and `Mattermost-Plugin-ID` headers, sets `Mattermost-User-ID` only for a valid session, and checks CSRF tokens on cookie-authenticated non-GET requests. Requests without a session still reach the plugin: `apiRouter` (`/api/v1`) rejects them, and every other route must verify its caller. The rest is the plugin's job.
 
 - Take the acting user only from the `Mattermost-User-ID` header, never from the body, query or path.
-- Before reading or changing anything named in a request, check `p.client.User.HasPermissionTo` (system), `HasPermissionToTeam` or `HasPermissionToChannel`. For a post, file or thread, check its channel. Check the permission for the resource being changed: channel actions use a channel permission (`checkCanEdit` in `channelstatus` reuses the channel header permissions), team actions a team permission, and only system-wide actions `model.PermissionManageSystem`.
-- When a feature has several entry points (slash command, API, webhook), put its checks in one function they all call, as `channelstatus.Service` does.
+- Before reading or changing anything named in a request, check `p.client.User.HasPermissionTo` (system), `HasPermissionToTeam` or `HasPermissionToChannel`. For a post, file or thread, check its channel. Check the permission for the resource being changed: channel actions use a channel permission (the feed, sync and channel-default commands check the channel's manage permissions), team actions a team permission, and only system-wide actions `model.PermissionManageSystem`.
+- When a feature has several entry points (slash command, API, webhook), put its checks in one function they all call, as `tasks.ChannelProject` does.
 - KV records are shared by all users of the plugin: key per-user data by user ID and check ownership on every access.
 - Slash commands: the server only checks that the user can post in the channel. Admin subcommands check permissions themselves; replies stay ephemeral unless the channel should see them.
 - Routes outside `/api/v1` are unauthenticated. Verify callers with a `"type": "generated"`, `"secret": true` setting compared via `crypto/subtle.ConstantTimeCompare`, or the provider's HMAC over the raw body. Reject everything while the secret is unset; read it from a header, never the query string.
@@ -21,7 +21,7 @@ On `/plugins/{id}/...` requests the server strips spoofed `Mattermost-User-ID` a
 - SQL uses placeholders; no user input in `os/exec`; check user-supplied path parts with `filepath.IsLocal`.
 - Outbound HTTP uses a client with a timeout. User-supplied URLs must be `https` and on an allowlist, so the plugin can't reach internal services. Never forward Mattermost tokens.
 - Settings holding credentials get `"secret": true`. Encrypt per-user OAuth tokens before storing them (AES-GCM, key from a generated setting). Never return plugin config to non-admins.
-- State changes write an audit record: `plugin.MakeAuditRecordWithContext` + `defer p.API.LogAuditRec`, then `Success()` (see `channelstatus.Service.Set`). Record denied attempts too, and only validated IDs, never content, credentials or config.
+- State changes write an audit record: `plugin.MakeAuditRecordWithContext` + `defer p.API.LogAuditRec`, then `Success()` (see `cards` actions). Record denied attempts too, and only validated IDs, never content, credentials or config.
 - KV read-modify-write uses `SetAtomicWithRetries`; background jobs use `cluster.Schedule`. The plugin runs on every cluster node.
 - Inline hooks (`MessageWillBePosted`, `MessageWillBeUpdated`, `FileWillBeUploaded`) block the user's request: keep them fast. Goroutines you start need their own `recover`.
 - Before releasing: `go run golang.org/x/vuln/cmd/govulncheck@latest ./...`.

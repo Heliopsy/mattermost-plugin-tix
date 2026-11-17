@@ -18,7 +18,8 @@ The tix HTTP API is described by `api/openapi.yaml` and `docs/api.md` in the tix
   and `User` (`/api/v1/...`, `Mattermost-User-ID` set by the server).
 - Features are packages with `New`, `Commands()` and `Routes(*api.Handler)`, wired in `server/plugin.go`:
   `link` (connect, disconnect, me), `tasks` (working tasks by command), `cards` (task cards and actions),
-  `notify` (tix webhooks to channels and DMs), `webapi` (the JSON API behind the webapp). A feature touches only its own package; a change to a shared
+  `notify` (tix webhooks to channels and DMs), `digest` (the daily digest and reminders job), `webapi` (the JSON API
+  behind the webapp). A feature touches only its own package; a change to a shared
   package (`app`, `store`, `tix`, `command`, `api`) is small, additive and called out in the commit.
 - Every tix call acts as the Mattermost user who caused it, through their own token. The admin token is used only
   to issue those tokens and to manage the webhook, never to act for a person.
@@ -30,10 +31,12 @@ make apply                                     # generate manifest.go / manifest
 go build ./... && go vet ./... && go test ./server/...
 cd webapp && npm ci && npm run check-types && npm run lint && npx jest
 make dist                                      # the plugin bundle in dist/
+make e2e                                       # real Mattermost + tix in podman (see docs/development.md)
 ```
 
 Commits are Conventional Commits, concise, no Co-Authored-By trailers. OpenSpec specs in `openspec/specs/`
-describe behaviour; update the spec with the code.
+describe behaviour; update the spec with the code. User docs live in `docs/`; keep README.md short and link there.
+Tool versions are pinned in `.tool-versions`.
 
 ## Rules that apply everywhere
 
