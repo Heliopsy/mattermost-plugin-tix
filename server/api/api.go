@@ -158,7 +158,6 @@ func setSecurityHeaders(next http.Handler) http.Handler {
 	})
 }
 
-
 // UserID is the authenticated Mattermost user of a User route.
 func UserID(r *http.Request) string { return r.Header.Get("Mattermost-User-ID") }
 
@@ -187,4 +186,3 @@ func WriteError(w http.ResponseWriter, r *http.Request, status int, msg string, 
 	}
 	WriteJSON(w, r, status, map[string]string{"error": msg})
 }
-

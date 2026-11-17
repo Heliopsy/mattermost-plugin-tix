@@ -385,4 +385,3 @@ var MemberScopes = []string{
 
 // ViewerScopes are what a tix viewer role grants.
 var ViewerScopes = []string{"task:read", "project:read", "workflow:read", "event:subscribe", "audit:read"}
-

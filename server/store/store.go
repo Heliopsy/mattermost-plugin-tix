@@ -22,13 +22,13 @@ import (
 
 // Link ties a Mattermost user to a tix actor through that person's own token.
 type Link struct {
-	UserID     string    `json:"user_id"`
-	ActorID    string    `json:"actor_id"`
-	Handle     string    `json:"handle"`
-	Email      string    `json:"email"`
-	TenantKey  string    `json:"tenant_key"`
-	TokenEnc   string    `json:"token_enc"`
-	TokenID    string    `json:"token_id"`
+	UserID    string `json:"user_id"`
+	ActorID   string `json:"actor_id"`
+	Handle    string `json:"handle"`
+	Email     string `json:"email"`
+	TenantKey string `json:"tenant_key"`
+	TokenEnc  string `json:"token_enc"`
+	TokenID   string `json:"token_id"`
 	// Minted is true when the plugin issued the token (and so may revoke it).
 	Minted     bool      `json:"minted"`
 	LinkedAt   time.Time `json:"linked_at"`
@@ -55,10 +55,10 @@ type CardRef struct {
 var ErrNotFound = errors.New("not found")
 
 const (
-	linkPrefix    = "ln_"   // ln_<mm user id> -> Link
-	actorPrefix   = "la_"   // la_<tix actor id> -> mm user id
-	subsKey       = "subs"  // all subscriptions
-	cardPrefix    = "cd_"   // cd_<task ref> -> []CardRef
+	linkPrefix     = "ln_"  // ln_<mm user id> -> Link
+	actorPrefix    = "la_"  // la_<tix actor id> -> mm user id
+	subsKey        = "subs" // all subscriptions
+	cardPrefix     = "cd_"  // cd_<task ref> -> []CardRef
 	maxCardsPerRef = 50
 )
 

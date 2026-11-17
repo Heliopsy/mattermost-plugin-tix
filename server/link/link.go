@@ -71,9 +71,9 @@ func (f *Feature) openDialog(c *command.Ctx) *model.CommandResponse {
 		TriggerId: c.Args.TriggerId,
 		URL:       f.a.PluginURL("/api/v1/dialog/connect"),
 		Dialog: model.Dialog{
-			Title:       "Connect to tix",
+			Title:            "Connect to tix",
 			IntroductionText: fmt.Sprintf("Make a token in tix ([%s](%s)) with the task, project, workflow and comment scopes, then paste it here. The plugin stores it encrypted and acts as you with it.", tokensURL, tokensURL),
-			SubmitLabel: "Connect",
+			SubmitLabel:      "Connect",
 			Elements: []model.DialogElement{{
 				DisplayName: "tix token", Name: "token", Type: "text", SubType: "password",
 				Placeholder: "tix_...",
