@@ -138,7 +138,7 @@ func TestParseList(t *testing.T) {
 		{"text terms", []string{"title~api", "-body~legacy", "text~gateway", "deploy", "rollback", "-spam"}, url.Values{"text": {"title~api", "-body~legacy", "any~gateway", "-any~spam"}, "q": {"deploy rollback"}}, true, false, "Open tasks (filtered)", ""},
 		{"is terms", []string{"is:claimed", "-is:blocked", "is:root"}, url.Values{"claimed": {"true"}, "blocked": {"false"}, "root_only": {"true"}}, true, false, "Open tasks (filtered)", ""},
 		{"due overdue", []string{"due:overdue"}, url.Values{"due_before": {"2026-11-17T10:00:00Z"}}, true, false, "Open tasks (filtered)", ""},
-		{"due today", []string{"due:today"}, url.Values{"due_after": {"2026-11-17T00:00:00Z"}, "due_before": {"2026-11-18T00:00:00Z"}}, true, false, "Open tasks (filtered)", ""},
+		{"due today", []string{"due:today"}, url.Values{"due_after": {"2026-11-17T00:00:00Z"}, "due_before": {"2026-11-17T23:59:59Z"}}, true, false, "Open tasks (filtered)", ""},
 		{"due before date", []string{"due-before:2026-12-01"}, url.Values{"due_before": {"2026-12-01T00:00:00Z"}}, true, false, "Open tasks (filtered)", ""},
 		{"sort and limit", []string{"sort:due_at", "limit:500"}, url.Values{"sort": {"due_at"}, "limit": {"100"}}, true, false, "Open tasks (filtered)", ""},
 		{"unknown term", []string{"color:red"}, nil, false, false, "", "unknown filter term"},

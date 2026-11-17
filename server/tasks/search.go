@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/heliopsy/mattermost-plugin-tix/server/render"
 	"github.com/heliopsy/mattermost-plugin-tix/server/tix"
 )
 
@@ -55,8 +56,8 @@ func parseSearch(args []string, isProject func(string) bool, resolve func(string
 	return q, nil
 }
 
-// parseDue reads /tix due [filter terms...]: the caller's open tasks due by the end of today
-// (UTC), overdue ones included, soonest first.
+// parseDue reads /tix due [filter terms...]: the caller's open tasks due by the end of today in
+// the caller's time zone (now's location), overdue ones included, soonest first.
 func parseDue(args []string, isProject func(string) bool, resolve func(string) (string, error), now time.Time) (*listQuery, error) {
 	q := &listQuery{Params: url.Values{}, Open: true, Mine: true}
 	var free []string
@@ -75,9 +76,8 @@ func parseDue(args []string, isProject func(string) bool, resolve func(string) (
 	if q.Params.Get("assignee") == "" {
 		q.Params.Set("assignee", "me")
 	}
-	u := now.UTC()
-	tomorrow := time.Date(u.Year(), u.Month(), u.Day()+1, 0, 0, 0, 0, time.UTC)
-	q.Params.Set("due_before", tomorrow.Format(time.RFC3339))
+	q.Params.Set("due_before", render.DueTodayBound(now, now.Location()).UTC().Format(time.RFC3339))
+	q.Due = dueByToday
 	q.Params.Set("sort", "due_at")
 	q.Params.Set("direction", "asc")
 	q.Params.Set("limit", strconv.Itoa(maxSearch))
@@ -104,7 +104,7 @@ func (e *env) flat(cx context.Context, q *listQuery, empty string) (string, erro
 	}
 	var rows []tix.Task
 	for _, t := range page.Items {
-		if q.Open && t.CompletedAt != nil {
+		if (q.Open && t.CompletedAt != nil) || !q.keepDue(&t, e.now()) {
 			continue
 		}
 		rows = append(rows, t)

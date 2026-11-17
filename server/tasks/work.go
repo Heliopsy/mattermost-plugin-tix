@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/heliopsy/mattermost-plugin-tix/server/render"
 	"github.com/heliopsy/mattermost-plugin-tix/server/tix"
 )
 
@@ -68,9 +69,10 @@ func (e *env) facts(t *tix.Task, wf *tix.Workflow) []string {
 	if p := priorityName(t.Priority); p != "" {
 		out = append(out, "**Priority:** "+p)
 	}
-	if t.DueAt != nil {
-		due := t.DueAt.UTC().Format("Mon 02.01.2006")
-		if t.CompletedAt == nil && t.DueAt.Before(e.now()) {
+	if d, ok := render.DueOf(t.DueAt); ok {
+		now := e.now()
+		due := d.Date(now.Location()).Format("Mon 02.01.2006")
+		if t.CompletedAt == nil && d.Overdue(now, now.Location()) {
 			due += " (overdue)"
 		}
 		out = append(out, "**Due:** "+due)
@@ -139,7 +141,7 @@ func (e *env) list(ctx context.Context, q *listQuery) (string, error) {
 	groups := map[string]*group{}
 	total := 0
 	for _, t := range page.Items {
-		if q.Open && t.CompletedAt != nil {
+		if (q.Open && t.CompletedAt != nil) || !q.keepDue(&t, e.now()) {
 			continue
 		}
 		total++
@@ -206,10 +208,12 @@ func (e *env) line(t *tix.Task, withAssignee bool) string {
 	if t.Priority == 1 || t.Priority == 2 {
 		parts = append(parts, "!"+priorityName(t.Priority))
 	}
-	if t.DueAt != nil {
-		due := "due " + t.DueAt.UTC().Format("02.01.")
-		if t.CompletedAt == nil && t.DueAt.Before(e.now()) {
-			due = "**overdue** " + t.DueAt.UTC().Format("02.01.")
+	if d, ok := render.DueOf(t.DueAt); ok {
+		now := e.now()
+		day := d.Date(now.Location()).Format("02.01.")
+		due := "due " + day
+		if t.CompletedAt == nil && d.Overdue(now, now.Location()) {
+			due = "**overdue** " + day
 		}
 		parts = append(parts, due)
 	}

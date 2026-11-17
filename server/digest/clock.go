@@ -91,28 +91,8 @@ func sameDay(a, b time.Time, loc *time.Location) bool {
 	return ay == by && am == bm && ad == bd
 }
 
-// endOfDay is local midnight after t.
-func endOfDay(t time.Time, loc *time.Location) time.Time {
-	lt := t.In(loc)
-	return time.Date(lt.Year(), lt.Month(), lt.Day()+1, 0, 0, 0, 0, loc)
-}
-
-// location is the person's Mattermost time zone (automatic or manual), UTC when unset or unknown.
-func (f *Feature) location(userID string) *time.Location {
-	u, appErr := f.a.API.GetUser(userID)
-	if appErr != nil || u == nil {
-		return time.UTC
-	}
-	name := u.GetPreferredTimezone()
-	if name == "" {
-		return time.UTC
-	}
-	loc, err := time.LoadLocation(name)
-	if err != nil {
-		return time.UTC
-	}
-	return loc
-}
+// location is the person's Mattermost time zone, UTC when unset or unknown.
+func (f *Feature) location(userID string) *time.Location { return f.a.Location(userID) }
 
 func wallBefore(t time.Time, h, m int) bool {
 	return t.Hour() < h || (t.Hour() == h && t.Minute() < m)

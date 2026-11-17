@@ -244,6 +244,23 @@ func (a *App) MentionFor(viewerID, actorID string) string {
 	return actorID
 }
 
+// Location is the user's Mattermost time zone (automatic or manual), UTC when unset or unknown.
+func (a *App) Location(userID string) *time.Location {
+	u, appErr := a.API.GetUser(userID)
+	if appErr != nil || u == nil {
+		return time.UTC
+	}
+	name := u.GetPreferredTimezone()
+	if name == "" {
+		return time.UTC
+	}
+	loc, err := time.LoadLocation(name)
+	if err != nil {
+		return time.UTC
+	}
+	return loc
+}
+
 // TaskURL links to a task in the tix web interface.
 func (a *App) TaskURL(t *tix.Task) string {
 	if t.WebURL != "" {

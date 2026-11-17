@@ -131,6 +131,20 @@ func TestClassify(t *testing.T) {
 	assert.Equal(t, []string{"w-4"}, refs(s.InProgress))
 
 	assert.True(t, classify(nil, now, sofia, nil).empty())
+
+	// A bare due date (midnight UTC) is the whole day: due today, not overdue, in any zone.
+	la := mustLoc(t, "America/Los_Angeles")
+	bare := []item{
+		{t: tix.Task{ID: "h", Ref: "w-8", DueAt: new(time.Date(2026, 11, 17, 0, 0, 0, 0, time.UTC))}, label: "To do"},
+		{t: tix.Task{ID: "i", Ref: "w-9", DueAt: new(time.Date(2026, 11, 16, 0, 0, 0, 0, time.UTC))}, label: "To do"},
+	}
+	s = classify(bare, now, sofia, nil)
+	assert.Equal(t, []string{"w-8"}, refs(s.DueToday))
+	assert.Equal(t, []string{"w-9"}, refs(s.Overdue))
+	// 23:00 on the 16th in Los Angeles: the 17th has not begun there, the 16th is today.
+	s = classify(bare, now, la, nil)
+	assert.Equal(t, []string{"w-9"}, refs(s.DueToday))
+	assert.Empty(t, s.Overdue)
 }
 
 // fakeKV is the plugin KV store in memory, expiring records on the test clock.

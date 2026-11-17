@@ -9,9 +9,11 @@ import (
 	"net/url"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/mattermost/mattermost/server/public/model"
 
+	"github.com/heliopsy/mattermost-plugin-tix/server/render"
 	"github.com/heliopsy/mattermost-plugin-tix/server/tix"
 )
 
@@ -138,6 +140,8 @@ type cardInput struct {
 	URL       string
 	Assignee  string
 	ActionURL string
+	// Loc is the time zone of the person the card is drawn for, which a due time is dated in.
+	Loc *time.Location
 	// Index is the card's position in its post; it keeps action ids unique within the post.
 	Index int
 }
@@ -157,8 +161,8 @@ func buildCard(in cardInput) *model.MessageAttachment {
 	if p := priorityName(t.Priority); p != "" {
 		fields = append(fields, &model.MessageAttachmentField{Title: "Priority", Value: p, Short: true})
 	}
-	if t.DueAt != nil {
-		fields = append(fields, &model.MessageAttachmentField{Title: "Due", Value: t.DueAt.UTC().Format("2006-01-02"), Short: true})
+	if d, ok := render.DueOf(t.DueAt); ok {
+		fields = append(fields, &model.MessageAttachmentField{Title: "Due", Value: d.Date(in.Loc).Format("2006-01-02"), Short: true})
 	}
 	if len(t.Tags) > 0 {
 		fields = append(fields, &model.MessageAttachmentField{Title: "Tags", Value: strings.Join(t.Tags, ", "), Short: true})

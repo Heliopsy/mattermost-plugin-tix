@@ -749,6 +749,25 @@ def _(s):
     contains(s.u["bob"].cmd(s.town, "/tix due"), "Nothing of yours is due")
 
 
+@scenario("a bare due date of today is due today, not overdue")
+def _(s):
+    alice = s.u["alice"]
+    # tix stores a date without a time as midnight UTC; the reported bug showed it as overdue.
+    out = alice.cmd(s.town, "/tix new infra Pay the hosting bill due:today")
+    ref = s.refs["bare_today"] = ref_in(out)
+    contains(out, "Due:**")
+    check("overdue" not in out, f"a task due today shown as overdue: {out!r}")
+    tomorrow = time.strftime("%Y-%m-%d", time.gmtime(time.time() + 86400))
+    status, t, _ = s.env.tix_api("POST", "/tasks", {"project_ref": "infra", "title": "Book the venue",
+                                                    "assignee_actor_id": s.actor("alice"), "due_at": tomorrow + "T00:00:00Z"})
+    check(status in (200, 201), f"create: {status} {t}")
+    due = alice.cmd(s.town, "/tix due")
+    line = [ln for ln in due.splitlines() if ref in ln.lower()]
+    check(line, f"{ref} missing from /tix due: {due!r}")
+    check("overdue" not in line[0], f"due today listed as overdue: {line[0]!r}")
+    check(t["ref"].lower() not in due.lower(), "a task due tomorrow is listed by /tix due")
+
+
 # --- web API ------------------------------------------------------------------------------
 
 @scenario("web API: GET /me")

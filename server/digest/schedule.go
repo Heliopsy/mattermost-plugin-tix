@@ -12,6 +12,7 @@ import (
 	"github.com/mattermost/mattermost/server/public/model"
 
 	"github.com/heliopsy/mattermost-plugin-tix/server/app"
+	"github.com/heliopsy/mattermost-plugin-tix/server/render"
 	"github.com/heliopsy/mattermost-plugin-tix/server/tix"
 )
 
@@ -159,7 +160,7 @@ func (f *Feature) run(userID string) error {
 	}
 	var dueBefore time.Time
 	if !morning {
-		dueBefore = now
+		dueBefore = render.OverdueBound(now, loc)
 	}
 	items, err := f.fetch(userID, tc, dueBefore)
 	if err != nil {
@@ -234,7 +235,7 @@ func (f *Feature) decide(r *record, items []item, now time.Time, loc *time.Locat
 		return out
 	}
 	for _, it := range items {
-		if it.t.DueAt != nil && it.t.DueAt.Before(now) && it.t.DueAt.After(recent) {
+		if due, ok := render.DueOf(it.t.DueAt); ok && due.Overdue(now, loc) && due.At.After(recent) {
 			out.overdue = append(out.overdue, it)
 		}
 	}
@@ -245,7 +246,8 @@ func (f *Feature) decide(r *record, items []item, now time.Time, loc *time.Locat
 // deliver claims the reminders and sends one DM.
 func (f *Feature) deliver(userID string, out *outcome, loc *time.Location) error {
 	for _, it := range out.silent {
-		f.claim(userID, it.t.ID, kindOf(it, f.now()), *it.t.DueAt, ttlOf(kindOf(it, f.now())))
+		kind := kindOf(it, f.now(), loc)
+		f.claim(userID, it.t.ID, kind, *it.t.DueAt, ttlOf(kind))
 	}
 	var today, overdue []item
 	for _, it := range out.dueToday {
@@ -271,8 +273,8 @@ func (f *Feature) deliver(userID string, out *outcome, loc *time.Location) error
 	return f.a.DM(userID, &model.Post{Message: msg})
 }
 
-func kindOf(it item, now time.Time) string {
-	if it.t.DueAt.Before(now) {
+func kindOf(it item, now time.Time, loc *time.Location) string {
+	if due, ok := render.DueOf(it.t.DueAt); ok && due.Overdue(now, loc) {
 		return kindOverdue
 	}
 	return kindDueToday

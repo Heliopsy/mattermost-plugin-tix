@@ -123,6 +123,22 @@ func TestBuildCard(t *testing.T) {
 	}
 }
 
+func TestBuildCardDueInTimeZone(t *testing.T) {
+	sofia, err := time.LoadLocation("Europe/Sofia")
+	require.NoError(t, err)
+	due := func(at time.Time) string {
+		c := buildCard(cardInput{Task: &task{Task: tix.Task{Ref: "infra-1", Status: "todo", DueAt: &at}}, Loc: sofia})
+		for _, f := range c.Fields {
+			if f.Title == "Due" {
+				return f.Value.(string)
+			}
+		}
+		return ""
+	}
+	assert.Equal(t, "2026-11-17", due(time.Date(2026, 11, 17, 0, 0, 0, 0, time.UTC)), "a bare date is the same day everywhere")
+	assert.Equal(t, "2026-11-18", due(time.Date(2026, 11, 17, 23, 30, 0, 0, time.UTC)), "a due time falls on its local date")
+}
+
 // --- a fake tix and a fake Mattermost ---
 
 type fakeTix struct {
