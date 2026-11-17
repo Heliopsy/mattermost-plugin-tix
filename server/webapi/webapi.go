@@ -20,6 +20,7 @@ import (
 	"github.com/heliopsy/mattermost-plugin-tix/server/api"
 	"github.com/heliopsy/mattermost-plugin-tix/server/app"
 	"github.com/heliopsy/mattermost-plugin-tix/server/command"
+	"github.com/heliopsy/mattermost-plugin-tix/server/i18n"
 	"github.com/heliopsy/mattermost-plugin-tix/server/link"
 	"github.com/heliopsy/mattermost-plugin-tix/server/store"
 	"github.com/heliopsy/mattermost-plugin-tix/server/tix"
@@ -146,45 +147,54 @@ type errorBody struct {
 	Code  string `json:"code,omitempty"`
 }
 
-func writeErr(w http.ResponseWriter, r *http.Request, status int, code, msg string) {
-	api.WriteJSON(w, r, status, errorBody{Error: msg, Code: code})
+// writeErr answers with an error code for the webapp and message id rendered in the requesting
+// user's language.
+func (f *Feature) writeErr(w http.ResponseWriter, r *http.Request, status int, code, msgID string, args ...any) {
+	f.writeErrText(w, r, status, code, f.lang(r).T(msgID, args...))
 }
 
+func (f *Feature) writeErrText(w http.ResponseWriter, r *http.Request, status int, code, text string) {
+	api.WriteJSON(w, r, status, errorBody{Error: text, Code: code})
+}
+
+// lang is the requesting user's language.
+func (f *Feature) lang(r *http.Request) *i18n.Localizer { return f.a.Locale(api.UserID(r)) }
+
 // writeTixErr answers a failed tix call: tix's own refusals pass through, the rest stay in the log.
-func writeTixErr(w http.ResponseWriter, r *http.Request, err error) {
+func (f *Feature) writeTixErr(w http.ResponseWriter, r *http.Request, err error) {
 	if errors.Is(err, app.ErrNotLinked) {
-		writeErr(w, r, http.StatusConflict, "not_linked", "Your Mattermost account is not connected to tix yet.")
+		f.writeErr(w, r, http.StatusConflict, "not_linked", "webapi.err.not_linked")
 		return
 	}
 	var te *tix.Error
 	if errors.As(err, &te) {
 		switch te.Status {
 		case http.StatusUnauthorized:
-			writeErr(w, r, http.StatusConflict, "token_rejected", "tix rejected your token. Connect again.")
+			f.writeErr(w, r, http.StatusConflict, "token_rejected", "webapi.err.token_rejected")
 			return
 		case http.StatusBadRequest, http.StatusForbidden, http.StatusNotFound, http.StatusConflict,
 			http.StatusPreconditionFailed, http.StatusUnprocessableEntity, http.StatusRequestEntityTooLarge:
-			writeErr(w, r, te.Status, te.Code, app.ErrText(app.EN, err))
+			f.writeErrText(w, r, te.Status, te.Code, app.ErrText(f.lang(r), err))
 			return
 		}
 	}
 	api.Log(r).WithError(err).Warnf("tix call failed")
-	writeErr(w, r, http.StatusBadGateway, "tix_unavailable", "tix did not answer. Try again later.")
+	f.writeErr(w, r, http.StatusBadGateway, "tix_unavailable", "webapi.err.tix_unavailable")
 }
 
 // client returns the requesting user's tix client, or answers the request and returns nil.
 func (f *Feature) client(w http.ResponseWriter, r *http.Request) *tix.Client {
 	c, _, err := f.a.TixFor(api.UserID(r))
 	if err != nil {
-		writeTixErr(w, r, err)
+		f.writeTixErr(w, r, err)
 		return nil
 	}
 	return c
 }
 
-func decode(w http.ResponseWriter, r *http.Request, v any) bool {
+func (f *Feature) decode(w http.ResponseWriter, r *http.Request, v any) bool {
 	if err := json.NewDecoder(r.Body).Decode(v); err != nil {
-		writeErr(w, r, http.StatusBadRequest, "bad_request", "The request body is not valid JSON.")
+		f.writeErr(w, r, http.StatusBadRequest, "bad_request", "webapi.err.bad_json")
 		return false
 	}
 	return true
@@ -213,10 +223,10 @@ func validRef(ref string) bool {
 	return true
 }
 
-func refOf(w http.ResponseWriter, r *http.Request) (string, bool) {
+func (f *Feature) refOf(w http.ResponseWriter, r *http.Request) (string, bool) {
 	ref := mux.Vars(r)["ref"]
 	if !validRef(ref) {
-		writeErr(w, r, http.StatusBadRequest, "bad_request", "That is not a task reference.")
+		f.writeErr(w, r, http.StatusBadRequest, "bad_request", "webapi.err.bad_ref")
 		return "", false
 	}
 	return ref, true
@@ -240,7 +250,8 @@ func (f *Feature) me(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case errors.Is(err, store.ErrNotFound):
 	case err != nil:
-		api.WriteError(w, r, http.StatusInternalServerError, "Could not read your tix connection.", err)
+		api.Log(r).WithError(err).Warnf("reading the tix link failed")
+		f.writeErr(w, r, http.StatusInternalServerError, "", "webapi.err.read_link")
 		return
 	default:
 		resp.Linked = true
@@ -261,21 +272,21 @@ func (f *Feature) connectByEmail(w http.ResponseWriter, r *http.Request) {
 	rec := f.audit(r, "tixConnect")
 	defer f.a.API.LogAuditRec(rec)
 	if f.connect == nil {
-		writeErr(w, r, http.StatusConflict, "connect_unavailable", "Run /tix connect to connect your account.")
+		f.writeErr(w, r, http.StatusConflict, "connect_unavailable", "webapi.err.connect_unavailable")
 		return
 	}
 	msg, err := f.connect(uid)
 	switch {
 	case err == nil:
 	case errors.Is(err, link.ErrNoAdminToken):
-		writeErr(w, r, http.StatusConflict, "connect_unavailable", "Run /tix connect with a token made in tix to connect your account.")
+		f.writeErr(w, r, http.StatusConflict, "connect_unavailable", "webapi.err.connect_needs_token")
 		return
 	case errors.Is(err, link.ErrNoMatch):
-		writeErr(w, r, http.StatusConflict, "no_match", "No tix account has your verified Mattermost email. Run /tix connect with a token made in tix.")
+		f.writeErr(w, r, http.StatusConflict, "no_match", "webapi.err.no_match")
 		return
 	default:
 		api.Log(r).WithError(err).Warnf("Connecting by email failed")
-		writeErr(w, r, http.StatusBadGateway, "connect_failed", "Connecting to tix failed. Try /tix connect.")
+		f.writeErr(w, r, http.StatusBadGateway, "connect_failed", "webapi.err.connect_failed")
 		return
 	}
 	rec.Success()
@@ -294,7 +305,7 @@ type ProjectView struct {
 func (f *Feature) projects(w http.ResponseWriter, r *http.Request) {
 	ps, err := f.a.Projects(api.UserID(r))
 	if err != nil {
-		writeTixErr(w, r, err)
+		f.writeTixErr(w, r, err)
 		return
 	}
 	out := make([]ProjectView, 0, len(ps))
@@ -310,7 +321,7 @@ func (f *Feature) projects(w http.ResponseWriter, r *http.Request) {
 func (f *Feature) workflows(w http.ResponseWriter, r *http.Request) {
 	ws, err := f.a.Workflows(api.UserID(r))
 	if err != nil {
-		writeTixErr(w, r, err)
+		f.writeTixErr(w, r, err)
 		return
 	}
 	if ws == nil {
@@ -432,7 +443,7 @@ func (f *Feature) listTasks(w http.ResponseWriter, r *http.Request) {
 	if s := in.Get("limit"); s != "" {
 		n, err := strconv.Atoi(s)
 		if err != nil || n < 1 {
-			writeErr(w, r, http.StatusBadRequest, "bad_request", "limit must be a positive number.")
+			f.writeErr(w, r, http.StatusBadRequest, "bad_request", "webapi.err.bad_limit")
 			return
 		}
 		limit = min(n, maxLimit)
@@ -440,26 +451,26 @@ func (f *Feature) listTasks(w http.ResponseWriter, r *http.Request) {
 	q.Set("limit", strconv.Itoa(limit))
 	if s := in.Get("cursor"); s != "" {
 		if len(s) > 512 {
-			writeErr(w, r, http.StatusBadRequest, "bad_request", "cursor is too long.")
+			f.writeErr(w, r, http.StatusBadRequest, "bad_request", "webapi.err.bad_cursor")
 			return
 		}
 		q.Set("cursor", s)
 	}
 	if s := strings.TrimSpace(in.Get("q")); s != "" {
 		if len(s) > maxQuery {
-			writeErr(w, r, http.StatusBadRequest, "bad_request", "The search is too long.")
+			f.writeErr(w, r, http.StatusBadRequest, "bad_request", "webapi.err.search_too_long")
 			return
 		}
 		q.Set("q", s)
 	}
 	statuses := in["status"]
 	if len(statuses) > maxStatuses {
-		writeErr(w, r, http.StatusBadRequest, "bad_request", "Too many statuses.")
+		f.writeErr(w, r, http.StatusBadRequest, "bad_request", "webapi.err.too_many_statuses")
 		return
 	}
 	for _, s := range statuses {
 		if !validRef(s) {
-			writeErr(w, r, http.StatusBadRequest, "bad_request", "That is not a status key.")
+			f.writeErr(w, r, http.StatusBadRequest, "bad_request", "webapi.err.bad_status")
 			return
 		}
 		q.Add("status", s)
@@ -470,14 +481,14 @@ func (f *Feature) listTasks(w http.ResponseWriter, r *http.Request) {
 
 	cat, err := f.catalog(uid)
 	if err != nil {
-		writeTixErr(w, r, err)
+		f.writeTixErr(w, r, err)
 		return
 	}
 	var proj *tix.Project
 	if key := in.Get("project"); key != "" {
 		p, ok := cat.projectByKey(key)
 		if !ok {
-			writeErr(w, r, http.StatusNotFound, "not_found", "No such project.")
+			f.writeErr(w, r, http.StatusNotFound, "not_found", "webapi.err.no_project")
 			return
 		}
 		proj = &p
@@ -494,7 +505,7 @@ func (f *Feature) listTasks(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := app.Ctx()
 	defer cancel()
 	if err := tc.Do(ctx, http.MethodGet, "/tasks", q, nil, &page); err != nil {
-		writeTixErr(w, r, err)
+		f.writeTixErr(w, r, err)
 		return
 	}
 	out := TaskList{Items: make([]TaskView, 0, len(page.Items)), NextCursor: page.NextCursor}
@@ -545,7 +556,7 @@ func closedStates(cat *catalog, proj *tix.Project) []string {
 }
 
 func (f *Feature) getTask(w http.ResponseWriter, r *http.Request) {
-	ref, ok := refOf(w, r)
+	ref, ok := f.refOf(w, r)
 	if !ok {
 		return
 	}
@@ -557,17 +568,17 @@ func (f *Feature) getTask(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	var t task
 	if err := tc.Do(ctx, http.MethodGet, "/tasks/"+url.PathEscape(ref), nil, nil, &t); err != nil {
-		writeTixErr(w, r, err)
+		f.writeTixErr(w, r, err)
 		return
 	}
 	cms, err := tc.ListComments(ctx, ref, url.Values{"limit": {strconv.Itoa(maxComments)}})
 	if err != nil {
-		writeTixErr(w, r, err)
+		f.writeTixErr(w, r, err)
 		return
 	}
 	cat, err := f.catalog(api.UserID(r))
 	if err != nil {
-		writeTixErr(w, r, err)
+		f.writeTixErr(w, r, err)
 		return
 	}
 	d := TaskDetail{Task: cat.view(t), Comments: []CommentView{}, Transitions: []Move{}}
@@ -586,15 +597,16 @@ func (f *Feature) getTask(w http.ResponseWriter, r *http.Request) {
 // actorForUser maps a Mattermost user to the tix actor they connected as.
 func (f *Feature) actorForUser(w http.ResponseWriter, r *http.Request, userID string) (string, bool) {
 	if !model.IsValidId(userID) {
-		writeErr(w, r, http.StatusBadRequest, "bad_request", "That is not a Mattermost user.")
+		f.writeErr(w, r, http.StatusBadRequest, "bad_request", "webapi.err.bad_user")
 		return "", false
 	}
 	l, err := f.a.Store.GetLink(userID)
 	if errors.Is(err, store.ErrNotFound) {
-		writeErr(w, r, http.StatusUnprocessableEntity, "assignee_not_linked", "That person has not connected Mattermost to tix, so they cannot be assigned here.")
+		f.writeErr(w, r, http.StatusUnprocessableEntity, "assignee_not_linked", "webapi.err.assignee_not_linked")
 		return "", false
 	} else if err != nil {
-		api.WriteError(w, r, http.StatusInternalServerError, "Could not read the assignee's tix connection.", err)
+		api.Log(r).WithError(err).Warnf("reading the assignee's tix link failed")
+		f.writeErr(w, r, http.StatusInternalServerError, "", "webapi.err.read_assignee_link")
 		return "", false
 	}
 	return l.ActorID, true
@@ -614,25 +626,25 @@ func (f *Feature) createTask(w http.ResponseWriter, r *http.Request) {
 	rec := f.audit(r, "tixCreateTask")
 	defer f.a.API.LogAuditRec(rec)
 	var in CreateRequest
-	if !decode(w, r, &in) {
+	if !f.decode(w, r, &in) {
 		return
 	}
 	in.Title = strings.TrimSpace(in.Title)
 	switch {
 	case in.Title == "" || len(in.Title) > maxTitle:
-		writeErr(w, r, http.StatusBadRequest, "bad_request", "The title must be 1 to 500 characters.")
+		f.writeErr(w, r, http.StatusBadRequest, "bad_request", "webapi.err.bad_title")
 		return
 	case len(in.Body) > maxText:
-		writeErr(w, r, http.StatusBadRequest, "bad_request", "The description is too long.")
+		f.writeErr(w, r, http.StatusBadRequest, "bad_request", "webapi.err.body_too_long")
 		return
 	case in.Priority < 0 || in.Priority > 5:
-		writeErr(w, r, http.StatusBadRequest, "bad_request", "Priority runs from 1 (highest) to 5 (lowest).")
+		f.writeErr(w, r, http.StatusBadRequest, "bad_request", "webapi.err.bad_priority")
 		return
 	case in.Project != "" && !validRef(in.Project):
-		writeErr(w, r, http.StatusBadRequest, "bad_request", "That is not a project key.")
+		f.writeErr(w, r, http.StatusBadRequest, "bad_request", "webapi.err.bad_project")
 		return
 	case len(in.Tags) > maxTags:
-		writeErr(w, r, http.StatusBadRequest, "bad_request", "Too many tags.")
+		f.writeErr(w, r, http.StatusBadRequest, "bad_request", "webapi.err.too_many_tags")
 		return
 	}
 	tc := f.client(w, r)
@@ -663,7 +675,7 @@ func (f *Feature) createTask(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	var t task
 	if err := tc.Do(ctx, http.MethodPost, "/tasks", nil, body, &t); err != nil {
-		writeTixErr(w, r, err)
+		f.writeTixErr(w, r, err)
 		return
 	}
 	rec.AddMeta("task_ref", t.Ref)
@@ -689,27 +701,27 @@ type UpdateRequest struct {
 func (f *Feature) updateTask(w http.ResponseWriter, r *http.Request) {
 	rec := f.audit(r, "tixUpdateTask")
 	defer f.a.API.LogAuditRec(rec)
-	ref, ok := refOf(w, r)
+	ref, ok := f.refOf(w, r)
 	if !ok {
 		return
 	}
 	rec.AddMeta("task_ref", ref)
 	var in UpdateRequest
-	if !decode(w, r, &in) {
+	if !f.decode(w, r, &in) {
 		return
 	}
 	fields := map[string]any{}
 	if in.Title != nil {
 		t := strings.TrimSpace(*in.Title)
 		if t == "" || len(t) > maxTitle {
-			writeErr(w, r, http.StatusBadRequest, "bad_request", "The title must be 1 to 500 characters.")
+			f.writeErr(w, r, http.StatusBadRequest, "bad_request", "webapi.err.bad_title")
 			return
 		}
 		fields["title"] = t
 	}
 	if in.Priority != nil {
 		if *in.Priority < 1 || *in.Priority > 5 {
-			writeErr(w, r, http.StatusBadRequest, "bad_request", "Priority runs from 1 (highest) to 5 (lowest).")
+			f.writeErr(w, r, http.StatusBadRequest, "bad_request", "webapi.err.bad_priority")
 			return
 		}
 		fields["priority"] = *in.Priority
@@ -726,7 +738,7 @@ func (f *Feature) updateTask(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if len(fields) == 0 {
-		writeErr(w, r, http.StatusBadRequest, "bad_request", "Nothing to change.")
+		f.writeErr(w, r, http.StatusBadRequest, "bad_request", "webapi.err.nothing_to_change")
 		return
 	}
 	tc := f.client(w, r)
@@ -737,7 +749,7 @@ func (f *Feature) updateTask(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	var t task
 	if err := tc.Do(ctx, http.MethodPatch, "/tasks/"+url.PathEscape(ref), nil, fields, &t); err != nil {
-		writeTixErr(w, r, err)
+		f.writeTixErr(w, r, err)
 		return
 	}
 	rec.Success()
@@ -753,21 +765,21 @@ type TransitionRequest struct {
 func (f *Feature) transition(w http.ResponseWriter, r *http.Request) {
 	rec := f.audit(r, "tixTransitionTask")
 	defer f.a.API.LogAuditRec(rec)
-	ref, ok := refOf(w, r)
+	ref, ok := f.refOf(w, r)
 	if !ok {
 		return
 	}
 	rec.AddMeta("task_ref", ref)
 	var in TransitionRequest
-	if !decode(w, r, &in) {
+	if !f.decode(w, r, &in) {
 		return
 	}
 	if !validRef(in.To) {
-		writeErr(w, r, http.StatusBadRequest, "bad_request", "Pick a status to move to.")
+		f.writeErr(w, r, http.StatusBadRequest, "bad_request", "webapi.err.no_target")
 		return
 	}
 	if len(in.Comment) > maxText {
-		writeErr(w, r, http.StatusBadRequest, "bad_request", "The comment is too long.")
+		f.writeErr(w, r, http.StatusBadRequest, "bad_request", "webapi.err.comment_too_long")
 		return
 	}
 	tc := f.client(w, r)
@@ -782,7 +794,7 @@ func (f *Feature) transition(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	var t task
 	if err := tc.Do(ctx, http.MethodPost, "/tasks/"+url.PathEscape(ref)+"/transition", nil, body, &t); err != nil {
-		writeTixErr(w, r, err)
+		f.writeTixErr(w, r, err)
 		return
 	}
 	rec.AddMeta("to", in.To)
@@ -798,18 +810,18 @@ type CommentRequest struct {
 func (f *Feature) addComment(w http.ResponseWriter, r *http.Request) {
 	rec := f.audit(r, "tixAddComment")
 	defer f.a.API.LogAuditRec(rec)
-	ref, ok := refOf(w, r)
+	ref, ok := f.refOf(w, r)
 	if !ok {
 		return
 	}
 	rec.AddMeta("task_ref", ref)
 	var in CommentRequest
-	if !decode(w, r, &in) {
+	if !f.decode(w, r, &in) {
 		return
 	}
 	body := strings.TrimSpace(in.Body)
 	if body == "" || len(body) > maxText {
-		writeErr(w, r, http.StatusBadRequest, "bad_request", "Write a comment of up to 64 KiB.")
+		f.writeErr(w, r, http.StatusBadRequest, "bad_request", "webapi.err.bad_comment")
 		return
 	}
 	tc := f.client(w, r)
@@ -820,7 +832,7 @@ func (f *Feature) addComment(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	c, err := tc.AddComment(ctx, ref, body)
 	if err != nil {
-		writeTixErr(w, r, err)
+		f.writeTixErr(w, r, err)
 		return
 	}
 	rec.Success()
