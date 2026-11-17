@@ -67,7 +67,7 @@ func (f *Feature) set(c *command.Ctx, event string, change func(r *record)) (*re
 	rec, done := f.audit(c, event)
 	defer done()
 	if _, _, err := f.a.TixFor(userID); err != nil {
-		return nil, app.ErrText(err)
+		return nil, app.ErrText(app.EN, err)
 	}
 	loc := f.location(userID)
 	now := f.now()
@@ -188,7 +188,7 @@ func (f *Feature) status(userID string) string {
 		}
 		fmt.Fprintf(&b, "Your tix digest is **on**: %s at %s (%s); %s.", days, r.at(), loc, quiet)
 		if !r.NextRun.IsZero() {
-			fmt.Fprintf(&b, " Next run: %s.", r.NextRun.In(loc).Format("Mon 2 Jan 15:04"))
+			fmt.Fprintf(&b, " Next run: %s.", f.renderer(userID, loc, f.now()).DateTime(r.NextRun))
 		}
 	} else {
 		b.WriteString("Your tix digest is **off**. `/tix digest on [HH:MM]` turns it on.")
@@ -206,7 +206,7 @@ func (f *Feature) status(userID string) string {
 func (f *Feature) sendNow(userID string) string {
 	tc, _, err := f.a.TixFor(userID)
 	if err != nil {
-		return app.ErrText(err)
+		return app.ErrText(app.EN, err)
 	}
 	r, _, err := f.load(userID)
 	if err != nil {
@@ -214,7 +214,7 @@ func (f *Feature) sendNow(userID string) string {
 	}
 	items, err := f.fetch(userID, tc, time.Time{})
 	if err != nil {
-		return app.ErrText(err)
+		return app.ErrText(app.EN, err)
 	}
 	loc := f.location(userID)
 	var seen []string
@@ -225,7 +225,7 @@ func (f *Feature) sendNow(userID string) string {
 		}
 	}
 	now := f.now()
-	if err := f.a.DM(userID, &model.Post{Message: f.renderDigest(classify(items, now, loc, seen), now, loc)}); err != nil {
+	if err := f.a.DM(userID, &model.Post{Message: f.renderDigest(classify(items, now, loc, seen), f.renderer(userID, loc, now))}); err != nil {
 		f.a.API.LogWarn("tix digest: sending", "user_id", userID, "err", err.Error())
 		return "Could not send the digest."
 	}

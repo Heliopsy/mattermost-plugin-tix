@@ -60,7 +60,7 @@ func (f *Feature) Commands() []command.Sub {
 			Run: f.webhookCmd,
 		},
 		{
-			Name: "subscribe", Hint: "<project|all> [created transitioned assigned commented done deleted]",
+			Name: "subscribe", Hint: "<project|all> [created transitioned assigned commented done deleted] [--detail compact|detailed|card] [--comments full|excerpt|none] [--people names|mentions]",
 			Help: "Post a project's tix activity in this channel", Run: f.subscribe,
 		},
 		{Name: "unsubscribe", Hint: "<project|all>", Help: "Stop posting a project's tix activity in this channel", Run: f.unsubscribe},

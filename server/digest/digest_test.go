@@ -21,6 +21,8 @@ import (
 
 	"github.com/heliopsy/mattermost-plugin-tix/server/app"
 	"github.com/heliopsy/mattermost-plugin-tix/server/command"
+	"github.com/heliopsy/mattermost-plugin-tix/server/i18n"
+	renderpkg "github.com/heliopsy/mattermost-plugin-tix/server/render"
 	"github.com/heliopsy/mattermost-plugin-tix/server/store"
 	"github.com/heliopsy/mattermost-plugin-tix/server/tix"
 )
@@ -130,7 +132,7 @@ func TestClassify(t *testing.T) {
 	assert.Equal(t, []string{"w-7"}, refs(s.New))
 	assert.Equal(t, []string{"w-4"}, refs(s.InProgress))
 
-	assert.True(t, classify(nil, now, sofia, nil).empty())
+	assert.True(t, classify(nil, now, sofia, nil).empty(renderpkg.AllDigestSections))
 
 	// A bare due date (midnight UTC) is the whole day: due today, not overdue, in any zone.
 	la := mustLoc(t, "America/Los_Angeles")
@@ -292,6 +294,7 @@ func newEnv(t *testing.T, tz string, start time.Time) *env {
 	e.api = &testAPI{API: &plugintest.API{}, kv: e.kv}
 	e.api.On("GetUser", userID).Return(&model.User{Id: userID, Timezone: model.StringMap{"useAutomaticTimezone": "true", "automaticTimezone": tz}}, nil)
 	e.api.On("GetDirectChannel", userID, botID).Return(&model.Channel{Id: "dm"}, nil)
+	e.api.On("GetConfig").Return(&model.Config{}).Maybe()
 	e.api.On("CreatePost", mock.AnythingOfType("*model.Post")).Run(func(args mock.Arguments) {
 		p := args.Get(0).(*model.Post)
 		assert.Equal(t, botID, p.UserId)
@@ -573,7 +576,7 @@ func TestCommands(t *testing.T) {
 	assert.Contains(t, e.cmd(f, "/tix digest on 25:00"), "not a time of day")
 	out := e.cmd(f, "/tix digest on 7:45")
 	assert.Contains(t, out, "Monday to Friday at 07:45 (Europe/Sofia)")
-	assert.Contains(t, out, "Next run: Tue 17 Nov 07:45")
+	assert.Contains(t, out, "Next run: 17.11.2026 07:45")
 	assert.Contains(t, e.cmd(f, "/tix digest bogus"), "Usage")
 	assert.Contains(t, e.cmd(f, "/tix reminders maybe"), "Usage")
 
@@ -585,4 +588,58 @@ func TestCommands(t *testing.T) {
 
 	require.NoError(t, e.app.Store.DeleteLink(userID))
 	assert.True(t, strings.Contains(e.cmd(f, "/tix reminders on"), "/tix connect"), "linking is required")
+}
+
+// TestDigestSections: the DigestSections setting picks and orders the sections; a task in a
+// section left out moves to the next listed one it fits.
+func TestDigestSections(t *testing.T) {
+	now := time.Date(2026, 11, 17, 7, 0, 0, 0, time.UTC)
+	yesterday := time.Date(2026, 11, 16, 0, 0, 0, 0, time.UTC)
+	items := []item{
+		{t: tix.Task{ID: "a", Ref: "w-1", Title: "Late and doing", DueAt: &yesterday}, label: "Doing", category: "in_progress"},
+		{t: tix.Task{ID: "b", Ref: "w-2", Title: "Doing"}, label: "Doing", category: "in_progress"},
+		{t: tix.Task{ID: "c", Ref: "w-3", Title: "Stuck"}, label: "Stuck", category: "blocked"},
+	}
+	s := classify(items, now, time.UTC, nil)
+	f := &Feature{a: app.New(nil, nil, nil, botID, func() *app.Config { return &app.Config{TixURL: "https://tix.test"} })}
+	render := func(sections []string, lang string) string {
+		o := renderpkg.Defaults()
+		o.DigestSections = sections
+		return f.renderDigest(s, renderpkg.New(o, i18n.For(lang), time.UTC, now))
+	}
+	headings := func(text string) []string {
+		var out []string
+		for line := range strings.SplitSeq(text, "\n") {
+			if strings.HasPrefix(line, "**") || strings.HasPrefix(line, "Open and") {
+				out = append(out, line)
+			}
+		}
+		return out
+	}
+	for _, tc := range []struct {
+		name     string
+		sections []string
+		want     []string
+	}{
+		{"default", renderpkg.AllDigestSections, []string{"**Overdue (1)**", "**Blocked (1)**", "**In progress (1)**", "Open and assigned to you: 3 (2 Doing, 1 Stuck)"}},
+		{"reordered, no counts", []string{renderpkg.SectionInProgress, renderpkg.SectionOverdue}, []string{"**In progress (2)**"}},
+		{
+			"overdue left out: the late task shows where it also fits",
+			[]string{renderpkg.SectionBlocked, renderpkg.SectionInProgress, renderpkg.SectionCounts},
+			[]string{"**Blocked (1)**", "**In progress (2)**", "Open and assigned to you: 3 (2 Doing, 1 Stuck)"},
+		},
+		{"only counts", []string{renderpkg.SectionCounts}, []string{"Open and assigned to you: 3 (2 Doing, 1 Stuck)"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, headings(render(tc.sections, "en")))
+		})
+	}
+	assert.Contains(t, render([]string{renderpkg.SectionCounts}, "en"), "All clear", "nothing listed reads all clear")
+	assert.True(t, s.empty([]string{renderpkg.SectionNew}))
+
+	bg := render(renderpkg.AllDigestSections, "bg")
+	assert.Contains(t, bg, "#### Твоето tix обобщение за вторник, 17.11.2026")
+	assert.Contains(t, bg, "**Просрочени (1)**")
+	assert.Contains(t, bg, "срок 16.11.2026")
+	assert.Contains(t, bg, "Отворени и възложени на теб: 3")
 }

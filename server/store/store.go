@@ -42,6 +42,12 @@ type Subscription struct {
 	Events    []string  `json:"events"`
 	CreatedBy string    `json:"created_by"`
 	CreatedAt time.Time `json:"created_at"`
+	// Detail, Comments and People override the feed formatting settings for this feed (compact,
+	// detailed or card; full, excerpt or none; names or mentions). Empty, as in records saved
+	// before they existed, keeps the System Console setting.
+	Detail   string `json:"detail,omitempty"`
+	Comments string `json:"comments,omitempty"`
+	People   string `json:"people,omitempty"`
 }
 
 // CardRef is one post that shows a task card, kept so the card can be redrawn when the task changes.

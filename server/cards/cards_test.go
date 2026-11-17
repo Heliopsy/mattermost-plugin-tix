@@ -23,6 +23,8 @@ import (
 
 	"github.com/heliopsy/mattermost-plugin-tix/server/api"
 	"github.com/heliopsy/mattermost-plugin-tix/server/app"
+	"github.com/heliopsy/mattermost-plugin-tix/server/i18n"
+	"github.com/heliopsy/mattermost-plugin-tix/server/render"
 	"github.com/heliopsy/mattermost-plugin-tix/server/store"
 	"github.com/heliopsy/mattermost-plugin-tix/server/tix"
 )
@@ -109,7 +111,7 @@ func TestBuildCard(t *testing.T) {
 			for _, f := range c.Fields {
 				fields[f.Title] = f.Value
 			}
-			assert.Equal(t, map[string]any{"Status": tc.label, "Assignee": "@alice", "Priority": "High", "Due": "2026-11-20", "Tags": "auth, web"}, fields)
+			assert.Equal(t, map[string]any{"Status": tc.label, "Assignee": "@alice", "Priority": "High", "Due": "20.11.2026", "Tags": "auth, web"}, fields)
 			var names []string
 			for i, a := range c.Actions {
 				names = append(names, a.Name)
@@ -127,7 +129,8 @@ func TestBuildCardDueInTimeZone(t *testing.T) {
 	sofia, err := time.LoadLocation("Europe/Sofia")
 	require.NoError(t, err)
 	due := func(at time.Time) string {
-		c := buildCard(cardInput{Task: &task{Task: tix.Task{Ref: "infra-1", Status: "todo", DueAt: &at}}, Loc: sofia})
+		r := render.New(render.Defaults(), nil, sofia, time.Date(2026, 11, 17, 9, 0, 0, 0, time.UTC))
+		c := buildCard(cardInput{Task: &task{Task: tix.Task{Ref: "infra-1", Status: "todo", DueAt: &at}}, R: r})
 		for _, f := range c.Fields {
 			if f.Title == "Due" {
 				return f.Value.(string)
@@ -135,8 +138,99 @@ func TestBuildCardDueInTimeZone(t *testing.T) {
 		}
 		return ""
 	}
-	assert.Equal(t, "2026-11-17", due(time.Date(2026, 11, 17, 0, 0, 0, 0, time.UTC)), "a bare date is the same day everywhere")
-	assert.Equal(t, "2026-11-18", due(time.Date(2026, 11, 17, 23, 30, 0, 0, time.UTC)), "a due time falls on its local date")
+	assert.Equal(t, "17.11.2026", due(time.Date(2026, 11, 17, 0, 0, 0, 0, time.UTC)), "a bare date is the same day everywhere")
+	assert.Equal(t, "18.11.2026", due(time.Date(2026, 11, 17, 23, 30, 0, 0, time.UTC)), "a due time falls on its local date")
+}
+
+// TestBuildCardSettings: the card settings pick the fields, their order, the buttons and the date format.
+func TestBuildCardSettings(t *testing.T) {
+	wf := testWorkflow()
+	due := time.Date(2026, 11, 19, 0, 0, 0, 0, time.UTC)
+	now := time.Date(2026, 11, 17, 9, 0, 0, 0, time.UTC)
+	tk := &task{Task: tix.Task{Ref: "infra-42", Title: "Fix login", Status: "doing", Tags: []string{"auth"}, DueAt: &due}, Priority: 2}
+	opts := func(change func(o *render.Options)) render.Options {
+		o := render.Defaults()
+		change(&o)
+		return o
+	}
+	for _, tc := range []struct {
+		name    string
+		o       render.Options
+		lang    string
+		fields  []string
+		values  []string
+		footer  string
+		buttons []string
+	}{
+		{
+			"defaults", render.Defaults(), "en",
+			[]string{"Status", "Assignee", "Priority", "Due", "Tags"},
+			[]string{"In progress", "@alice", "High", "19.11.2026", "auth"},
+			"tix · Infrastructure",
+			[]string{"Done", "Review", "Stuck", "Assign to me", "Comment"},
+		},
+		{
+			"some fields, reordered", opts(func(o *render.Options) { o.CardFields = []string{render.FieldDue, render.FieldStatus} }), "en",
+			[]string{"Due", "Status"},
+			[]string{"19.11.2026", "In progress"},
+			"tix",
+			[]string{"Done", "Review", "Stuck", "Assign to me", "Comment"},
+		},
+		{
+			"iso dates", opts(func(o *render.Options) { o.DateFormat = render.DateISO; o.CardFields = []string{render.FieldDue} }), "en",
+			[]string{"Due"},
+			[]string{"2026-11-19"},
+			"tix",
+			[]string{"Done", "Review", "Stuck", "Assign to me", "Comment"},
+		},
+		{
+			"relative dates", opts(func(o *render.Options) { o.DateFormat = render.DateRelative; o.CardFields = []string{render.FieldDue} }), "en",
+			[]string{"Due"},
+			[]string{"in 2 days"},
+			"tix",
+			[]string{"Done", "Review", "Stuck", "Assign to me", "Comment"},
+		},
+		{
+			"one state button, no assign", opts(func(o *render.Options) { o.CardButtons = 1; o.AssignButton = false; o.CardFields = nil }), "en",
+			nil, nil, "tix",
+			[]string{"Done", "Comment"},
+		},
+		{
+			"no buttons at all", opts(func(o *render.Options) {
+				o.CardButtons = 0
+				o.AssignButton = false
+				o.CommentButton = false
+				o.CardFields = nil
+			}), "en",
+			nil, nil, "tix", nil,
+		},
+		{
+			"in Bulgarian", render.Defaults(), "bg",
+			[]string{"Статус", "Възложена на", "Приоритет", "Срок", "Етикети"},
+			[]string{"In progress", "@alice", "Висок", "19.11.2026", "auth"},
+			"tix · Infrastructure",
+			[]string{"Done", "Review", "Stuck", "Възложи на мен", "Коментар"},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c := buildCard(cardInput{
+				Task: tk, Workflow: &wf, Project: &tix.Project{Name: "Infrastructure"}, Assignee: "@alice",
+				R: render.New(tc.o, i18n.For(tc.lang), time.UTC, now),
+			})
+			var fields, values, buttons []string
+			for _, f := range c.Fields {
+				fields = append(fields, f.Title)
+				values = append(values, f.Value.(string))
+			}
+			for _, a := range c.Actions {
+				buttons = append(buttons, a.Name)
+			}
+			assert.Equal(t, tc.fields, fields)
+			assert.Equal(t, tc.values, values)
+			assert.Equal(t, tc.footer, c.Footer)
+			assert.Equal(t, tc.buttons, buttons)
+		})
+	}
 }
 
 // --- a fake tix and a fake Mattermost ---

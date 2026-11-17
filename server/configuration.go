@@ -7,6 +7,8 @@ import (
 	"reflect"
 
 	"github.com/pkg/errors"
+
+	"github.com/heliopsy/mattermost-plugin-tix/server/render"
 )
 
 // configuration captures the plugin's external configuration as exposed in the Mattermost server
@@ -30,6 +32,24 @@ type configuration struct {
 	// CardQuietMinutes is a number setting; the System Console may store it as a string.
 	CardQuietMinutes json.Number
 	CreateEmoji      string
+
+	// Formatting settings; empty means the default. render.Parse reads them.
+	FeedDetail     string
+	CommentText    string
+	FeedPeople     string
+	CardFields     string
+	CardButtons    string
+	DateFormat     string
+	DigestSections string
+	// The bool settings are pointers so a setting the console never saved reads as its default (on).
+	ShowAssignButton  *bool
+	ShowCommentButton *bool
+
+	BotDisplayName string
+	BotIconURL     string
+
+	// format is the parsed formatting settings, filled in by OnConfigurationChange.
+	format render.Options
 }
 
 // Clone shallow copies the configuration. Your implementation may require a deep copy if
@@ -89,7 +109,18 @@ func (p *Plugin) OnConfigurationChange() error {
 		return errors.Wrap(err, "failed to load plugin configuration")
 	}
 
+	var problems []string
+	configuration.format, problems = render.Parse(render.Raw{
+		FeedDetail: configuration.FeedDetail, CommentText: configuration.CommentText, FeedPeople: configuration.FeedPeople,
+		CardFields: configuration.CardFields, DateFormat: configuration.DateFormat, DigestSections: configuration.DigestSections,
+		CardButtons: configuration.CardButtons, ShowAssignButton: configuration.ShowAssignButton, ShowComment: configuration.ShowCommentButton,
+	})
+	for _, msg := range problems {
+		p.API.LogWarn("tix: ignoring a formatting setting", "problem", msg)
+	}
+
 	p.setConfiguration(configuration)
+	p.applyBotSettings()
 
 	return nil
 }

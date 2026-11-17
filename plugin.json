@@ -94,6 +94,157 @@
                 "help_text": "Reacting to a message with this emoji creates a tix task from it in the channel's default project (set with /tix channel project). The emoji name without colons; leave empty for ticket.",
                 "placeholder": "ticket",
                 "default": "ticket"
+            },
+            {
+                "key": "FeedDetail",
+                "display_name": "Channel feed detail:",
+                "type": "dropdown",
+                "help_text": "How much a channel feed post says about its task. Compact: one line, who did what. Detailed: adds the assignee, priority and due date. Card: each event as a small card. `/tix subscribe --detail` overrides it per feed.",
+                "default": "compact",
+                "options": [
+                    {
+                        "display_name": "Compact",
+                        "value": "compact"
+                    },
+                    {
+                        "display_name": "Detailed",
+                        "value": "detailed"
+                    },
+                    {
+                        "display_name": "Card",
+                        "value": "card"
+                    }
+                ]
+            },
+            {
+                "key": "CommentText",
+                "display_name": "Comment text in feeds and DMs:",
+                "type": "dropdown",
+                "help_text": "Full: the whole comment, quoted. Excerpt: its first 200 characters on one line, cut at a word. None: only says that someone commented. `/tix subscribe --comments` overrides it per feed.",
+                "default": "excerpt",
+                "options": [
+                    {
+                        "display_name": "Full",
+                        "value": "full"
+                    },
+                    {
+                        "display_name": "Excerpt",
+                        "value": "excerpt"
+                    },
+                    {
+                        "display_name": "None",
+                        "value": "none"
+                    }
+                ]
+            },
+            {
+                "key": "FeedPeople",
+                "display_name": "People in feeds:",
+                "type": "dropdown",
+                "help_text": "Names: feed posts name people without notifying them. Mentions: feed posts @-mention connected people, which notifies them. `/tix subscribe --people` overrides it per feed.",
+                "default": "names",
+                "options": [
+                    {
+                        "display_name": "Names, no notification",
+                        "value": "names"
+                    },
+                    {
+                        "display_name": "@-mentions",
+                        "value": "mentions"
+                    }
+                ]
+            },
+            {
+                "key": "CardFields",
+                "display_name": "Task card fields:",
+                "type": "text",
+                "help_text": "The fields task cards show, in this order, separated by commas: status, assignee, priority, due, tags, project (the project goes in the card's footer). Leave empty for all of them. Unknown names are ignored and logged.",
+                "placeholder": "status, assignee, priority, due, tags, project",
+                "default": "status, assignee, priority, due, tags, project"
+            },
+            {
+                "key": "CardButtons",
+                "display_name": "Task card state buttons:",
+                "type": "dropdown",
+                "help_text": "How many buttons for moving the task to its next states a card shows, the sensible moves first.",
+                "default": "3",
+                "options": [
+                    {
+                        "display_name": "None",
+                        "value": "0"
+                    },
+                    {
+                        "display_name": "1",
+                        "value": "1"
+                    },
+                    {
+                        "display_name": "2",
+                        "value": "2"
+                    },
+                    {
+                        "display_name": "3",
+                        "value": "3"
+                    }
+                ]
+            },
+            {
+                "key": "ShowAssignButton",
+                "display_name": "Show the Assign to me button:",
+                "type": "bool",
+                "help_text": "Cards of open tasks get an Assign to me button.",
+                "default": true
+            },
+            {
+                "key": "ShowCommentButton",
+                "display_name": "Show the Comment button:",
+                "type": "bool",
+                "help_text": "Cards get a Comment button that opens a comment dialog.",
+                "default": true
+            },
+            {
+                "key": "DateFormat",
+                "display_name": "Date format:",
+                "type": "dropdown",
+                "help_text": "How dates are written in cards, task commands, the digest and feeds. EU: 17.11.2026. ISO: 2026-11-17. Relative: today, in 2 days, 3 days ago, with the date beyond two weeks. A date without a time of day is the same day in every time zone; other dates follow each reader's Mattermost time zone.",
+                "default": "eu",
+                "options": [
+                    {
+                        "display_name": "EU (17.11.2026)",
+                        "value": "eu"
+                    },
+                    {
+                        "display_name": "ISO (2026-11-17)",
+                        "value": "iso"
+                    },
+                    {
+                        "display_name": "Relative (in 2 days)",
+                        "value": "relative"
+                    }
+                ]
+            },
+            {
+                "key": "DigestSections",
+                "display_name": "Digest sections:",
+                "type": "text",
+                "help_text": "The sections of the daily digest, in this order, separated by commas: overdue, due_today, new, blocked, in_progress, counts. A task shows in the first of its sections that is listed. Leave empty for all of them. Unknown names are ignored and logged.",
+                "placeholder": "overdue, due_today, new, blocked, in_progress, counts",
+                "default": "overdue, due_today, new, blocked, in_progress, counts"
+            },
+            {
+                "key": "BotDisplayName",
+                "display_name": "Bot display name:",
+                "type": "text",
+                "help_text": "The name the tix bot shows with its posts. Its username stays tix.",
+                "placeholder": "tix",
+                "default": "tix"
+            },
+            {
+                "key": "BotIconURL",
+                "display_name": "Bot icon URL (optional):",
+                "type": "text",
+                "help_text": "An https URL of a PNG, at most 1 MiB and 1024x1024 pixels, to use as the bot's icon. It is fetched once when the setting changes; addresses on private networks are refused. Leave empty for the tix icon.",
+                "placeholder": "https://example.com/bot.png",
+                "default": ""
             }
         ]
     },

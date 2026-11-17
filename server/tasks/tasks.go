@@ -55,7 +55,7 @@ func (f *Feature) appEnv(userID string) (*env, error) {
 		actorID:   l.ActorID,
 		projects:  func() ([]tix.Project, error) { return f.a.Projects(userID) },
 		workflows: func() ([]tix.Workflow, error) { return f.a.Workflows(userID) },
-		mention:   func(actorID string) string { return f.a.MentionFor(userID, actorID) },
+		mention:   func(actorID string) string { return f.a.MentionFor(app.EN, userID, actorID) },
 		taskURL:   f.a.TaskURL,
 		mmActor: func(username string) (string, bool, error) {
 			u, appErr := f.a.API.GetUserByUsername(strings.ToLower(username))
@@ -70,7 +70,9 @@ func (f *Feature) appEnv(userID string) (*env, error) {
 			}
 			return id, true, nil
 		},
-		now: func() time.Time { return time.Now().In(loc) },
+		now:    func() time.Time { return time.Now().In(loc) },
+		format: f.a.Config().Format,
+		lang:   f.a.Locale(userID),
 	}, nil
 }
 
@@ -163,11 +165,11 @@ func (f *Feature) Routes(h *api.Handler) {
 func (f *Feature) withEnv(c *command.Ctx, fn func(e *env) (string, error)) *model.CommandResponse {
 	e, err := f.envFor(c.Args.UserId)
 	if err != nil {
-		return command.Ephemeral(app.ErrText(err))
+		return command.Ephemeral(app.ErrText(app.EN, err))
 	}
 	msg, err := fn(e)
 	if err != nil {
-		return command.Ephemeral(app.ErrText(err))
+		return command.Ephemeral(app.ErrText(app.EN, err))
 	}
 	return command.Ephemeral(msg)
 }
@@ -182,7 +184,7 @@ func needRef(args []string, usage string) (string, error) {
 func (f *Feature) cmdNew(c *command.Ctx, args []string) *model.CommandResponse {
 	e, err := f.envFor(c.Args.UserId)
 	if err != nil {
-		return command.Ephemeral(app.ErrText(err))
+		return command.Ephemeral(app.ErrText(app.EN, err))
 	}
 	na, err := parseNew(args, e.isProject)
 	if err != nil {
@@ -195,7 +197,7 @@ func (f *Feature) cmdNew(c *command.Ctx, args []string) *model.CommandResponse {
 	defer cancel()
 	t, err := e.create(cx, na)
 	if err != nil {
-		return command.Ephemeral(app.ErrText(err))
+		return command.Ephemeral(app.ErrText(app.EN, err))
 	}
 	wf, _, _ := e.workflowFor(t.ProjectID)
 	if na.Post {

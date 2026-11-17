@@ -106,7 +106,7 @@ func (f *Feature) createFromPost(userID, emoji string, post *model.Post, root st
 	if errors.Is(err, app.ErrNotLinked) {
 		return fmt.Sprintf("Connect your tix account with `/tix connect` to create tasks with %s. Your reaction stays as it is.", f.emojiText())
 	} else if err != nil {
-		return app.ErrText(err)
+		return app.ErrText(app.EN, err)
 	}
 	project := f.ChannelProject(userID, post.ChannelId)
 	if project == "" {
@@ -146,7 +146,7 @@ func (f *Feature) createFromPost(userID, emoji string, post *model.Post, root st
 	})
 	if err != nil {
 		_, _ = f.a.Store.Set(storeFeature, key, nil)
-		return "Could not create the task: " + app.ErrText(err)
+		return "Could not create the task: " + app.ErrText(app.EN, err)
 	}
 	url := e.taskURL(t)
 	_, _ = f.a.Store.Set(storeFeature, key, reactRecord{Ref: t.Ref, URL: url, At: time.Now().UTC()})

@@ -189,17 +189,18 @@ func (f *Feature) run(userID string) error {
 		if gerr := guard(cur); gerr != nil {
 			return gerr
 		}
-		out = f.decide(cur, items, now, loc, morning)
+		out = f.decide(cur, items, f.renderer(userID, loc, now), morning)
 		return nil
 	})
 	if err != nil {
 		return err
 	}
-	return f.deliver(userID, &out, loc)
+	return f.deliver(userID, &out, f.renderer(userID, loc, now))
 }
 
 // decide fills in what to send and moves the record's schedule on.
-func (f *Feature) decide(r *record, items []item, now time.Time, loc *time.Location, morning bool) outcome {
+func (f *Feature) decide(r *record, items []item, rr *render.R, morning bool) outcome {
+	now, loc := rr.Now, rr.Loc
 	var out outcome
 	recent := now.Add(-recentDays * 24 * time.Hour)
 	if morning {
@@ -213,8 +214,8 @@ func (f *Feature) decide(r *record, items []item, now time.Time, loc *time.Locat
 		}
 		s := classify(items, now, loc, seen)
 		if r.Digest && digestDay(slot.In(loc), r.Daily) && !sameDay(r.LastDigest, slot, loc) {
-			if !s.empty() || !r.Quiet {
-				out.digest = f.renderDigest(s, now, loc)
+			if !s.empty(rr.O.DigestSections) || !r.Quiet {
+				out.digest = f.renderDigest(s, rr)
 			}
 			r.LastDigest = now
 			r.Seen, r.Baseline = s.ids, true
@@ -244,7 +245,8 @@ func (f *Feature) decide(r *record, items []item, now time.Time, loc *time.Locat
 }
 
 // deliver claims the reminders and sends one DM.
-func (f *Feature) deliver(userID string, out *outcome, loc *time.Location) error {
+func (f *Feature) deliver(userID string, out *outcome, r *render.R) error {
+	loc := r.Loc
 	for _, it := range out.silent {
 		kind := kindOf(it, f.now(), loc)
 		f.claim(userID, it.t.ID, kind, *it.t.DueAt, ttlOf(kind))
@@ -261,7 +263,7 @@ func (f *Feature) deliver(userID string, out *outcome, loc *time.Location) error
 		}
 	}
 	msg := out.digest
-	if rem := f.renderReminders(today, overdue, loc); rem != "" {
+	if rem := f.renderReminders(today, overdue, r); rem != "" {
 		if msg != "" {
 			msg += "\n\n"
 		}
@@ -271,6 +273,11 @@ func (f *Feature) deliver(userID string, out *outcome, loc *time.Location) error
 		return nil
 	}
 	return f.a.DM(userID, &model.Post{Message: msg})
+}
+
+// renderer renders a person's digest and reminders: their language, their zone, the settings.
+func (f *Feature) renderer(userID string, loc *time.Location, now time.Time) *render.R {
+	return render.New(f.a.Config().Format.OrDefaults(), f.a.Locale(userID), loc, now)
 }
 
 func kindOf(it item, now time.Time, loc *time.Location) string {

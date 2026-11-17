@@ -71,7 +71,7 @@ func (e *env) facts(t *tix.Task, wf *tix.Workflow) []string {
 	}
 	if d, ok := render.DueOf(t.DueAt); ok {
 		now := e.now()
-		due := d.Date(now.Location()).Format("Mon 02.01.2006")
+		due := e.r().DueDay(d)
 		if t.CompletedAt == nil && d.Overdue(now, now.Location()) {
 			due += " (overdue)"
 		}
@@ -210,7 +210,7 @@ func (e *env) line(t *tix.Task, withAssignee bool) string {
 	}
 	if d, ok := render.DueOf(t.DueAt); ok {
 		now := e.now()
-		day := d.Date(now.Location()).Format("02.01.")
+		day := e.r().DueDay(d)
 		due := "due " + day
 		if t.CompletedAt == nil && d.Overdue(now, now.Location()) {
 			due = "**overdue** " + day

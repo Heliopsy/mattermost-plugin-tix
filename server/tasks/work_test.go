@@ -237,7 +237,7 @@ func TestCard(t *testing.T) {
 	task := &tix.Task{Ref: "INFRA-1", Title: "Rotate\nkeys", Status: "doing", Priority: 2, DueAt: &due, Tags: []string{"ops", "sec"}, AssigneeActorID: "A_BOB"}
 	got := e.card(task, testWorkflow(), "Created ")
 	assert.Equal(t, "Created [INFRA-1](https://tix.test/tasks/INFRA-1) **Rotate keys**\n"+
-		"**Status:** In progress · **Assignee:** @bob · **Priority:** high · **Due:** Mon 16.11.2026 (overdue) · **Tags:** `ops`, `sec`", got)
+		"**Status:** In progress · **Assignee:** @bob · **Priority:** high · **Due:** 16.11.2026 (overdue) · **Tags:** `ops`, `sec`", got)
 }
 
 func TestShow(t *testing.T) {

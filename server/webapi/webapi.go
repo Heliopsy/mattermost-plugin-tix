@@ -164,7 +164,7 @@ func writeTixErr(w http.ResponseWriter, r *http.Request, err error) {
 			return
 		case http.StatusBadRequest, http.StatusForbidden, http.StatusNotFound, http.StatusConflict,
 			http.StatusPreconditionFailed, http.StatusUnprocessableEntity, http.StatusRequestEntityTooLarge:
-			writeErr(w, r, te.Status, te.Code, app.ErrText(err))
+			writeErr(w, r, te.Status, te.Code, app.ErrText(app.EN, err))
 			return
 		}
 	}

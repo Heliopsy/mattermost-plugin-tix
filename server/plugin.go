@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/mattermost/mattermost/server/public/model"
 	"github.com/mattermost/mattermost/server/public/plugin"
@@ -33,6 +34,13 @@ type Plugin struct {
 	configurationLock sync.RWMutex
 	configuration     *configuration
 
+	// botID is set once the bot exists; configuration changes before that leave the bot alone.
+	botID atomic.Pointer[string]
+	// botMu serializes applying the bot's name and icon; iconApplied is the custom icon URL this
+	// process set (EnsureBot puts the default back on every activation).
+	botMu       sync.Mutex
+	iconApplied string
+
 	app      *app.App
 	http     *api.Handler
 	commands *command.Registry
@@ -53,12 +61,13 @@ func (p *Plugin) OnActivate() error {
 
 	botID, err := client.Bot.EnsureBot(&model.Bot{
 		Username:    "tix",
-		DisplayName: "tix",
+		DisplayName: botDisplayName(p.getConfiguration().BotDisplayName),
 		Description: "Tasks from tix.",
-	}, pluginapi.ProfileImagePath("assets/icon.png"))
+	}, pluginapi.ProfileImagePath(defaultBotIcon))
 	if err != nil {
 		return errors.Wrap(err, "failed to ensure the tix bot")
 	}
+	p.botID.Store(&botID)
 
 	st := store.New(&client.KV, func() string { return p.getConfiguration().EncryptionKey })
 	p.app = app.New(p.API, client, st, botID, func() *app.Config {
@@ -66,7 +75,7 @@ func (p *Plugin) OnActivate() error {
 		return &app.Config{
 			TixURL: c.TixURL, AdminToken: c.AdminToken, EncryptionKey: c.EncryptionKey, WebhookSecret: c.WebhookSecret,
 			UnfurlRefs: c.UnfurlRefs, CardStyle: c.CardStyle, CardQuietMinutes: quietMinutes(c.CardQuietMinutes),
-			CreateEmoji: c.CreateEmoji,
+			CreateEmoji: c.CreateEmoji, Format: c.format, BotDisplayName: c.BotDisplayName, BotIconURL: c.BotIconURL,
 		}
 	})
 
@@ -85,6 +94,7 @@ func (p *Plugin) OnActivate() error {
 	if err := p.commands.Register(client); err != nil {
 		return err
 	}
+	p.applyBotSettings()
 	return p.digest.Start(p.API)
 }
 
