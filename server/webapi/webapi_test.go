@@ -102,6 +102,7 @@ type env struct {
 	tix              *fakeTix
 	alice, bob, carl string
 	connectErr       error
+	papi             *plugintest.API
 }
 
 // memKV backs the plugin KV store with a map.
@@ -149,6 +150,7 @@ func setup(t *testing.T) *env {
 	memKV(papi)
 	quietLogs(papi)
 	papi.On("LogAuditRec", mock.Anything).Maybe()
+	papi.On("GetConfig").Return(&model.Config{}).Maybe()
 	for id, name := range map[string]string{e.alice: "alice", e.bob: "bob", e.carl: "carl"} {
 		papi.On("GetUser", id).Return(&model.User{Id: id, Username: name, FirstName: strings.ToUpper(name[:1]) + name[1:]}, nil).Maybe()
 	}
@@ -161,6 +163,7 @@ func setup(t *testing.T) *env {
 	require.NoError(t, st.SaveLink(&store.Link{UserID: e.alice, ActorID: "act-alice", Handle: "alice", LinkedAt: time.Now()}, "tok-alice"))
 	require.NoError(t, st.SaveLink(&store.Link{UserID: e.bob, ActorID: "act-bob", Handle: "bob", LinkedAt: time.Now()}, "tok-bob"))
 
+	e.papi = papi
 	e.h = api.NewHandler(papi)
 	f := New(a, func(string) (string, error) {
 		if e.connectErr != nil {
@@ -421,4 +424,22 @@ func TestTixErrors(t *testing.T) {
 	code, body = e.do(t, e.alice, http.MethodGet, "/tasks/infra-1", nil)
 	assert.Equal(t, http.StatusBadGateway, code)
 	assert.NotContains(t, body["error"], "title is required")
+}
+
+// TestErrorsInUserLanguage: error messages follow the requesting user's Mattermost language; the codes do not change.
+func TestErrorsInUserLanguage(t *testing.T) {
+	e := setup(t)
+	dana := model.NewId()
+	e.papi.On("GetUser", dana).Return(&model.User{Id: dana, Username: "dana", Locale: "bg"}, nil).Maybe()
+	code, body := e.do(t, dana, http.MethodGet, "/tasks", nil)
+	assert.Equal(t, http.StatusConflict, code)
+	assert.Equal(t, "not_linked", body["code"])
+	assert.Equal(t, "Профилът ти в Mattermost още не е свързан с tix.", body["error"])
+
+	code, body = e.do(t, dana, http.MethodGet, "/tasks/bad%20ref", nil)
+	assert.Equal(t, http.StatusBadRequest, code)
+	assert.Equal(t, "Това не е номер на задача.", body["error"])
+
+	_, body = e.do(t, e.carl, http.MethodGet, "/tasks", nil)
+	assert.Equal(t, "Your Mattermost account is not connected to tix yet.", body["error"], "English for an English user")
 }
