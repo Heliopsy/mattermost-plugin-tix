@@ -32,9 +32,9 @@ func New(a *app.App) *Feature { return &Feature{a: a} }
 // Commands are /tix connect, disconnect and me.
 func (f *Feature) Commands() []command.Sub {
 	return []command.Sub{
-		{Name: "connect", Hint: "[token]", Help: "Connect your Mattermost account to tix", Run: f.connect},
-		{Name: "disconnect", Help: "Disconnect from tix and revoke the token the plugin holds", Run: f.disconnect},
-		{Name: "me", Aliases: []string{"whoami"}, Help: "Show the tix account you are connected as", Run: f.me},
+		{Name: "connect", Hint: "[token]", HelpID: "link.cmd.connect", Run: f.connect},
+		{Name: "disconnect", HelpID: "link.cmd.disconnect", Run: f.disconnect},
+		{Name: "me", Aliases: []string{"whoami"}, HelpID: "link.cmd.me", Run: f.me},
 	}
 }
 

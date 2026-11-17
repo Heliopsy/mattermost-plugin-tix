@@ -12,6 +12,7 @@ import (
 
 	"github.com/heliopsy/mattermost-plugin-tix/server/app"
 	"github.com/heliopsy/mattermost-plugin-tix/server/command"
+	"github.com/heliopsy/mattermost-plugin-tix/server/i18n"
 )
 
 const (
@@ -24,28 +25,28 @@ func (f *Feature) Commands() []command.Sub {
 	return []command.Sub{
 		{
 			Name: "digest", Hint: "on [HH:MM]|off|now|status|days mon-fri|daily|quiet on|off",
-			Help: "Get a daily DM summary of your tix tasks",
-			Autocomplete: func(n *model.AutocompleteData) {
-				on := model.NewAutocompleteData("on", "[HH:MM]", "Send it every workday at this time (default 09:00, your time zone)")
+			HelpID: "digest.cmd.digest",
+			Autocomplete: func(n *model.AutocompleteData, l *i18n.Localizer) {
+				on := model.NewAutocompleteData("on", "[HH:MM]", l.T("digest.cmd.digest_on"))
 				n.AddCommand(on)
-				n.AddCommand(model.NewAutocompleteData("off", "", "Stop the digest"))
-				n.AddCommand(model.NewAutocompleteData("now", "", "Send the digest now"))
-				n.AddCommand(model.NewAutocompleteData("status", "", "Show your digest settings"))
-				days := model.NewAutocompleteData("days", "mon-fri|daily", "Workdays only, or every day")
-				days.AddStaticListArgument("", true, []model.AutocompleteListItem{{Item: "mon-fri", HelpText: "Monday to Friday"}, {Item: "daily", HelpText: "Every day"}})
+				n.AddCommand(model.NewAutocompleteData("off", "", l.T("digest.cmd.digest_off")))
+				n.AddCommand(model.NewAutocompleteData("now", "", l.T("digest.cmd.digest_now")))
+				n.AddCommand(model.NewAutocompleteData("status", "", l.T("digest.cmd.digest_status")))
+				days := model.NewAutocompleteData("days", "mon-fri|daily", l.T("digest.cmd.digest_days"))
+				days.AddStaticListArgument("", true, []model.AutocompleteListItem{{Item: "mon-fri", HelpText: l.T("digest.cmd.days_mon_fri")}, {Item: "daily", HelpText: l.T("digest.cmd.days_daily")}})
 				n.AddCommand(days)
-				quiet := model.NewAutocompleteData("quiet", "on|off", "Skip a digest with nothing to report")
+				quiet := model.NewAutocompleteData("quiet", "on|off", l.T("digest.cmd.digest_quiet"))
 				quiet.AddStaticListArgument("", true, []model.AutocompleteListItem{{Item: "on"}, {Item: "off"}})
 				n.AddCommand(quiet)
 			},
 			Run: f.digestCmd,
 		},
 		{
-			Name: "reminders", Hint: "on|off|status", Help: "Get a DM when a task assigned to you is due today or overdue",
-			Autocomplete: func(n *model.AutocompleteData) {
-				n.AddCommand(model.NewAutocompleteData("on", "", "Remind me of due and overdue tasks"))
-				n.AddCommand(model.NewAutocompleteData("off", "", "Stop due reminders"))
-				n.AddCommand(model.NewAutocompleteData("status", "", "Show whether reminders are on"))
+			Name: "reminders", Hint: "on|off|status", HelpID: "digest.cmd.reminders",
+			Autocomplete: func(n *model.AutocompleteData, l *i18n.Localizer) {
+				n.AddCommand(model.NewAutocompleteData("on", "", l.T("digest.cmd.reminders_on")))
+				n.AddCommand(model.NewAutocompleteData("off", "", l.T("digest.cmd.reminders_off")))
+				n.AddCommand(model.NewAutocompleteData("status", "", l.T("digest.cmd.reminders_status")))
 			},
 			Run: f.remindersCmd,
 		},

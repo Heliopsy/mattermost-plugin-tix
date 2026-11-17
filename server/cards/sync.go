@@ -16,6 +16,7 @@ import (
 
 	"github.com/heliopsy/mattermost-plugin-tix/server/app"
 	"github.com/heliopsy/mattermost-plugin-tix/server/command"
+	"github.com/heliopsy/mattermost-plugin-tix/server/i18n"
 	"github.com/heliopsy/mattermost-plugin-tix/server/store"
 )
 
@@ -41,10 +42,10 @@ type syncRecord struct {
 func (f *Feature) Commands() []command.Sub {
 	return []command.Sub{{
 		Name: "sync", Hint: "on|off",
-		Help: "Mirror replies in this channel's task card threads to tix comments, and back (channel admins)",
-		Autocomplete: func(n *model.AutocompleteData) {
-			n.AddCommand(model.NewAutocompleteData("on", "", "Mirror card threads and tix comments"))
-			n.AddCommand(model.NewAutocompleteData("off", "", "Stop mirroring"))
+		HelpID: "cards.cmd.sync",
+		Autocomplete: func(n *model.AutocompleteData, l *i18n.Localizer) {
+			n.AddCommand(model.NewAutocompleteData("on", "", l.T("cards.cmd.sync_on")))
+			n.AddCommand(model.NewAutocompleteData("off", "", l.T("cards.cmd.sync_off")))
 		},
 		Run: f.syncCmd,
 	}}
