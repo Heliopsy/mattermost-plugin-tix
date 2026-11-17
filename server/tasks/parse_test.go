@@ -19,9 +19,18 @@ func TestParsePriority(t *testing.T) {
 		want int
 		err  bool
 	}{
-		{"highest", 1, false}, {"High", 2, false}, {"!high", 2, false}, {"normal", 3, false},
-		{"medium", 3, false}, {"low", 4, false}, {"lowest", 5, false}, {"1", 1, false},
-		{"p5", 5, false}, {"6", 0, true}, {"urgent", 0, true}, {"", 0, true},
+		{"highest", 1, false},
+		{"High", 2, false},
+		{"!high", 2, false},
+		{"normal", 3, false},
+		{"medium", 3, false},
+		{"low", 4, false},
+		{"lowest", 5, false},
+		{"1", 1, false},
+		{"p5", 5, false},
+		{"6", 0, true},
+		{"urgent", 0, true},
+		{"", 0, true},
 	} {
 		got, err := parsePriority(tc.in)
 		if tc.err {

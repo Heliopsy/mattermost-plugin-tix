@@ -43,7 +43,7 @@ func priorityName(p int) string {
 // command.SplitArgs splits it, so a comment keeps its quotes, spacing and line breaks.
 func restAfter(s string, n int) string {
 	i := 0
-	for k := 0; k < n; k++ {
+	for range n {
 		for i < len(s) && isSpace(s[i]) {
 			i++
 		}
