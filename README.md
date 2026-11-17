@@ -115,8 +115,9 @@ channels, DMs to the people concerned and redrawn task cards.
 2. Click **Regenerate** next to **Webhook secret** and save. Until a secret exists the receiver rejects everything.
 3. Run `/tix webhook setup` as a system admin. It registers (or updates) a tenant webhook in tix pointing at
    `<SiteURL>/plugins/cc.heliopsy.tix/hooks/webhook`, signed with that secret, for task changes and
-   `comment.added`. tix only delivers to `https` URLs on public addresses (an operator can relax this with
-   `webhooks.allow_private_targets`). `/tix webhook status` shows the endpoint and its last deliveries;
+   `comment.added`. tix only delivers to `https` URLs on public addresses. An operator can allow private
+   addresses with `webhooks.allow_private_targets`, but plain `http` is accepted only for a loopback SiteURL such
+   as `http://localhost:8065`, so a Mattermost on a private network needs `https`. `/tix webhook status` shows the endpoint and its last deliveries;
    `/tix webhook remove` deletes it. After regenerating the secret, run `/tix webhook setup` again.
 
 The receiver checks `X-Tix-Signature` (`sha256=` and the hex HMAC-SHA256 of `X-Tix-Timestamp`, a dot and the raw
@@ -208,6 +209,27 @@ the thread by the bot. Edits, bot and system posts are not mirrored, and a comme
 thread or channel it came from. Everyone who can read the channel sees the mirrored comments.
 
 ## Development
+
+### End-to-end tests
+
+`make e2e` runs the plugin in a real Mattermost against a real tix and checks what people see:
+
+```bash
+make e2e                                   # build, start, seed, run every scenario, tear down
+E2E_FLAGS="--only card --only sync" make e2e   # setup always runs; then only matching scenarios
+E2E_KEEP=1 make e2e                        # keep the images it pulled, for faster reruns
+```
+
+It needs Go, Node, Python 3 (standard library only) and rootless podman. The suite (`e2e/run.py`) builds the
+bundle for this machine, starts `docker.io/mattermost/mattermost-preview` as `tix-e2e-mm` and
+`ghcr.io/heliopsy/tix` as `tix-e2e-tix` in the same network namespace (tix only delivers plain-http webhooks to
+loopback), publishes both on random `127.0.0.1` ports, seeds them (the tix demo data, a `review` workflow with a
+transition that requires a comment, people in both, a plugin admin token), and prints one `PASS` or `FAIL` line
+per scenario and a summary. It always removes its containers and volume, also on failure or Ctrl-C, and
+deletes the images it pulled unless `E2E_KEEP=1`. `E2E_TIX_IMAGE` and `E2E_MM_IMAGE` pick other versions. The
+scenarios are in `e2e/scenarios.py`; the `e2e` workflow runs them on pull requests.
+
+### Deploying to a server
 
 To avoid having to manually install your plugin, build and deploy your plugin using one of the following options. In order for the below options to work, you must first enable plugin uploads via your config.json or API and restart Mattermost.
 
