@@ -13,6 +13,8 @@ import (
 
 	"github.com/heliopsy/mattermost-plugin-tix/server/app"
 	"github.com/heliopsy/mattermost-plugin-tix/server/command"
+	"github.com/heliopsy/mattermost-plugin-tix/server/i18n"
+	"github.com/heliopsy/mattermost-plugin-tix/server/render"
 	"github.com/heliopsy/mattermost-plugin-tix/server/store"
 	"github.com/heliopsy/mattermost-plugin-tix/server/tix"
 )
@@ -77,9 +79,59 @@ func parseKinds(args []string) ([]string, error) {
 	return out, nil
 }
 
+// parseFeedOptions takes --detail, --comments and --people (as --name value or --name=value) out
+// of the arguments of /tix subscribe and returns the rest.
+func parseFeedOptions(args []string) (render.Feed, []string, error) {
+	var opts render.Feed
+	var rest []string
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		if !strings.HasPrefix(a, "--") {
+			rest = append(rest, a)
+			continue
+		}
+		name, val, hasVal := strings.Cut(strings.ToLower(a), "=")
+		if !hasVal {
+			if i+1 >= len(args) {
+				return opts, nil, i18n.NewError("notify.subscribe.option_needs_value", "option", name)
+			}
+			i++
+			val = strings.ToLower(args[i])
+		}
+		var dst *string
+		var allowed []string
+		switch name {
+		case "--detail":
+			dst, allowed = &opts.Detail, []string{render.DetailCompact, render.DetailDetailed, render.DetailCard}
+		case "--comments":
+			dst, allowed = &opts.Comments, []string{render.CommentFull, render.CommentExcerpt, render.CommentNone}
+		case "--people":
+			dst, allowed = &opts.People, []string{render.PeopleNames, render.PeopleMentions}
+		default:
+			return opts, nil, i18n.NewError("notify.subscribe.unknown_option", "option", name)
+		}
+		if !slices.Contains(allowed, val) {
+			return opts, nil, i18n.NewError("notify.subscribe.bad_value", "option", name, "value", val, "allowed", strings.Join(allowed, ", "))
+		}
+		*dst = val
+	}
+	return opts, rest, nil
+}
+
+// feedFormat describes a feed's overrides, or "" when it has none.
+func feedFormat(s store.Subscription) string {
+	var parts []string
+	for _, kv := range [][2]string{{"detail", s.Detail}, {"comments", s.Comments}, {"people", s.People}} {
+		if kv[1] != "" {
+			parts = append(parts, "--"+kv[0]+" "+kv[1])
+		}
+	}
+	return strings.Join(parts, " ")
+}
+
 func (f *Feature) subscribe(c *command.Ctx, args []string) *model.CommandResponse {
 	if len(args) == 0 {
-		return command.Ephemeral("Usage: `/tix subscribe <project|all> [" + strings.Join(allKinds, " ") + "]`. Default: " + strings.Join(defaultKinds, ", ") + ".")
+		return command.Ephemeral("Usage: `/tix subscribe <project|all> [" + strings.Join(allKinds, " ") + "] [--detail compact|detailed|card] [--comments full|excerpt|none] [--people names|mentions]`. Default: " + strings.Join(defaultKinds, ", ") + ".")
 	}
 	userID, channelID := c.Args.UserId, c.Args.ChannelId
 	rec, done := f.audit(c, "tixSubscribe")
@@ -87,7 +139,11 @@ func (f *Feature) subscribe(c *command.Ctx, args []string) *model.CommandRespons
 	if ok, msg := f.canManageChannel(userID, channelID); !ok {
 		return command.Ephemeral(msg)
 	}
-	ks, err := parseKinds(args[1:])
+	opts, kindArgs, err := parseFeedOptions(args[1:])
+	if err != nil {
+		return command.Ephemeral(app.ErrText(app.EN, err))
+	}
+	ks, err := parseKinds(kindArgs)
 	if err != nil {
 		return command.Ephemeral(err.Error())
 	}
@@ -99,7 +155,7 @@ func (f *Feature) subscribe(c *command.Ctx, args []string) *model.CommandRespons
 	} else {
 		p, perr := f.findProject(userID, args[0])
 		if perr != nil {
-			return command.Ephemeral(app.ErrText(perr))
+			return command.Ephemeral(app.ErrText(app.EN, perr))
 		}
 		project, label = p.Key, fmt.Sprintf("**%s** (%s)", p.Key, p.Name)
 	}
@@ -107,7 +163,10 @@ func (f *Feature) subscribe(c *command.Ctx, args []string) *model.CommandRespons
 		out := slices.DeleteFunc(cur, func(s store.Subscription) bool {
 			return s.ChannelID == channelID && strings.EqualFold(s.Project, project)
 		})
-		return append(out, store.Subscription{ChannelID: channelID, Project: project, Events: ks, CreatedBy: userID, CreatedAt: time.Now()})
+		return append(out, store.Subscription{
+			ChannelID: channelID, Project: project, Events: ks, CreatedBy: userID, CreatedAt: time.Now(),
+			Detail: opts.Detail, Comments: opts.Comments, People: opts.People,
+		})
 	})
 	if err != nil {
 		f.a.API.LogError("tix: saving a subscription", "err", err.Error())
@@ -116,6 +175,9 @@ func (f *Feature) subscribe(c *command.Ctx, args []string) *model.CommandRespons
 	rec.AddMeta("project", project)
 	rec.Success()
 	msg := fmt.Sprintf("This channel now gets tix activity of %s: %s.\n%s", label, strings.Join(ks, ", "), privacyNote)
+	if format := feedFormat(store.Subscription{Detail: opts.Detail, Comments: opts.Comments, People: opts.People}); format != "" {
+		msg += "\nFormat: `" + format + "`."
+	}
 	if f.a.Config().WebhookSecret == "" {
 		msg += "\nNothing arrives until a system admin runs `/tix webhook setup`."
 	}
@@ -190,15 +252,19 @@ func (f *Feature) subscriptions(c *command.Ctx, args []string) *model.CommandRes
 		}
 		if n == 0 {
 			if all {
-				b.WriteString("| Channel | Project | Events | By |\n| --- | --- | --- | --- |\n")
+				b.WriteString("| Channel | Project | Events | Format | By |\n| --- | --- | --- | --- | --- |\n")
 			} else {
-				b.WriteString("| Project | Events | By |\n| --- | --- | --- |\n")
+				b.WriteString("| Project | Events | Format | By |\n| --- | --- | --- | --- |\n")
 			}
 		}
 		n++
 		project := s.Project
 		if project == "" {
 			project = "all"
+		}
+		format := "default"
+		if ff := feedFormat(s); ff != "" {
+			format = "`" + ff + "`"
 		}
 		by := s.CreatedBy
 		if u, appErr := f.a.API.GetUser(s.CreatedBy); appErr == nil {
@@ -209,9 +275,9 @@ func (f *Feature) subscriptions(c *command.Ctx, args []string) *model.CommandRes
 			if channel, appErr := f.a.API.GetChannel(s.ChannelID); appErr == nil {
 				ch = "~" + channel.Name
 			}
-			fmt.Fprintf(&b, "| %s | %s | %s | %s |\n", ch, project, strings.Join(s.Events, ", "), by)
+			fmt.Fprintf(&b, "| %s | %s | %s | %s | %s |\n", ch, project, strings.Join(s.Events, ", "), format, by)
 		} else {
-			fmt.Fprintf(&b, "| %s | %s | %s |\n", project, strings.Join(s.Events, ", "), by)
+			fmt.Fprintf(&b, "| %s | %s | %s | %s |\n", project, strings.Join(s.Events, ", "), format, by)
 		}
 	}
 	if n == 0 {
@@ -271,7 +337,7 @@ func (f *Feature) webhookCmd(c *command.Ctx, args []string) *model.CommandRespon
 	}
 	admin, err := f.a.NewTix(cfg.AdminToken)
 	if err != nil {
-		return command.Ephemeral(app.ErrText(err))
+		return command.Ephemeral(app.ErrText(app.EN, err))
 	}
 	switch sub {
 	case "setup":
@@ -317,7 +383,7 @@ func (f *Feature) webhookSetup(c *command.Ctx, admin *tix.Client) *model.Command
 	}
 	existing, err := f.findEndpoint(admin)
 	if err != nil {
-		return command.Ephemeral(app.ErrText(err))
+		return command.Ephemeral(app.ErrText(app.EN, err))
 	}
 	in := tix.WebhookInput{URL: f.a.PluginURL("/hooks/webhook"), Secret: secret, EventTypes: webhookEventTypes, Active: true}
 	if existing != nil {
@@ -327,7 +393,7 @@ func (f *Feature) webhookSetup(c *command.Ctx, admin *tix.Client) *model.Command
 	defer cancel()
 	hook, err := admin.PutWebhook(ctx, in)
 	if err != nil {
-		return command.Ephemeral("tix refused the webhook: " + app.ErrText(err))
+		return command.Ephemeral("tix refused the webhook: " + app.ErrText(app.EN, err))
 	}
 	if _, err := f.a.Store.Set("notify", "endpoint", endpointRecord{ID: hook.ID, URL: hook.URL}); err != nil {
 		f.a.API.LogWarn("tix: remembering the webhook id", "err", err.Error())
@@ -343,7 +409,7 @@ func (f *Feature) webhookSetup(c *command.Ctx, admin *tix.Client) *model.Command
 func (f *Feature) webhookStatus(admin *tix.Client) *model.CommandResponse {
 	hook, err := f.findEndpoint(admin)
 	if err != nil {
-		return command.Ephemeral(app.ErrText(err))
+		return command.Ephemeral(app.ErrText(app.EN, err))
 	}
 	if hook == nil {
 		return command.Ephemeral("No tix webhook points at this plugin. `/tix webhook setup` registers one.")
@@ -361,7 +427,7 @@ func (f *Feature) webhookStatus(admin *tix.Client) *model.CommandResponse {
 	defer cancel()
 	ds, err := admin.ListWebhookDeliveries(ctx, hook.ID, 10)
 	if err != nil {
-		b.WriteString("Could not read the delivery log: " + app.ErrText(err))
+		b.WriteString("Could not read the delivery log: " + app.ErrText(app.EN, err))
 		return command.Ephemeral(b.String())
 	}
 	if len(ds) == 0 {
@@ -388,7 +454,7 @@ func (f *Feature) webhookRemove(c *command.Ctx, admin *tix.Client) *model.Comman
 	defer done()
 	hook, err := f.findEndpoint(admin)
 	if err != nil {
-		return command.Ephemeral(app.ErrText(err))
+		return command.Ephemeral(app.ErrText(app.EN, err))
 	}
 	if hook == nil {
 		return command.Ephemeral("No tix webhook points at this plugin.")
@@ -396,7 +462,7 @@ func (f *Feature) webhookRemove(c *command.Ctx, admin *tix.Client) *model.Comman
 	ctx, cancel := app.Ctx()
 	defer cancel()
 	if err := admin.DeleteWebhook(ctx, hook.ID); err != nil && !tix.IsStatus(err, 404) {
-		return command.Ephemeral(app.ErrText(err))
+		return command.Ephemeral(app.ErrText(app.EN, err))
 	}
 	_, _ = f.a.Store.Set("notify", "endpoint", nil)
 	rec.Success()

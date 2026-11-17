@@ -48,7 +48,7 @@ func (f *Feature) connect(c *command.Ctx, args []string) *model.CommandResponse 
 	if len(args) > 0 && strings.TrimSpace(args[0]) != "" {
 		msg, err := f.linkWithToken(userID, strings.TrimSpace(args[0]))
 		if err != nil {
-			return command.Ephemeral(app.ErrText(err))
+			return command.Ephemeral(app.ErrText(app.EN, err))
 		}
 		return command.Ephemeral(msg)
 	}
@@ -59,7 +59,7 @@ func (f *Feature) connect(c *command.Ctx, args []string) *model.CommandResponse 
 		}
 		f.a.API.LogInfo("tix: automatic connect failed, offering the token dialog", "user_id", userID, "err", err.Error())
 		if !errors.Is(err, errNoMatch) {
-			return command.Ephemeral(app.ErrText(err))
+			return command.Ephemeral(app.ErrText(app.EN, err))
 		}
 	}
 	return f.openDialog(c)
@@ -95,7 +95,7 @@ func (f *Feature) dialogSubmit(w http.ResponseWriter, r *http.Request) {
 	tok, _ := req.Submission["token"].(string)
 	msg, err := f.linkWithToken(req.UserId, strings.TrimSpace(tok))
 	if err != nil {
-		api.WriteJSON(w, r, http.StatusOK, model.SubmitDialogResponse{Errors: map[string]string{"token": app.ErrText(err)}})
+		api.WriteJSON(w, r, http.StatusOK, model.SubmitDialogResponse{Errors: map[string]string{"token": app.ErrText(app.EN, err)}})
 		return
 	}
 	f.a.Ephemeral(req.UserId, req.ChannelId, "", msg)
@@ -238,13 +238,13 @@ func (f *Feature) disconnect(c *command.Ctx, _ []string) *model.CommandResponse 
 	if errors.Is(err, store.ErrNotFound) {
 		return command.Ephemeral("You are not connected to tix.")
 	} else if err != nil {
-		return command.Ephemeral(app.ErrText(err))
+		return command.Ephemeral(app.ErrText(app.EN, err))
 	}
 	if l.Minted {
 		f.revoke(l)
 	}
 	if err := f.a.Store.DeleteLink(c.Args.UserId); err != nil {
-		return command.Ephemeral(app.ErrText(err))
+		return command.Ephemeral(app.ErrText(app.EN, err))
 	}
 	f.a.InvalidateUser(c.Args.UserId)
 	msg := "Disconnected from tix. The plugin no longer holds a token for you."
@@ -257,13 +257,13 @@ func (f *Feature) disconnect(c *command.Ctx, _ []string) *model.CommandResponse 
 func (f *Feature) me(c *command.Ctx, _ []string) *model.CommandResponse {
 	tc, l, err := f.a.TixFor(c.Args.UserId)
 	if err != nil {
-		return command.Ephemeral(app.ErrText(err))
+		return command.Ephemeral(app.ErrText(app.EN, err))
 	}
 	ctx, cancel := app.Ctx()
 	defer cancel()
 	me, err := tc.WhoAmI(ctx)
 	if err != nil {
-		return command.Ephemeral(app.ErrText(err))
+		return command.Ephemeral(app.ErrText(app.EN, err))
 	}
 	person, handle := me.Name(), ""
 	if act, aerr := f.a.Actor(c.Args.UserId, l.ActorID); aerr == nil && act != nil {
@@ -276,5 +276,5 @@ func (f *Feature) me(c *command.Ctx, _ []string) *model.CommandResponse {
 		tenant = " in tenant **" + me.TenantName + "**"
 	}
 	return command.Ephemeral(fmt.Sprintf("Connected to **%s** as **%s**%s%s since %s, with the token `%s`.\nScopes: `%s`",
-		f.a.TixURL(), person, handle, tenant, l.LinkedAt.Format("02.01.2006"), me.Handle, strings.Join(scopes, "`, `")))
+		f.a.TixURL(), person, handle, tenant, f.a.RendererFor(c.Args.UserId).Date(l.LinkedAt), me.Handle, strings.Join(scopes, "`, `")))
 }

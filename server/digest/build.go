@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/heliopsy/mattermost-plugin-tix/server/app"
+	"github.com/heliopsy/mattermost-plugin-tix/server/i18n"
 	"github.com/heliopsy/mattermost-plugin-tix/server/render"
 	"github.com/heliopsy/mattermost-plugin-tix/server/tix"
 )
@@ -99,16 +100,59 @@ func isClosed(s tix.State) bool {
 	return s.Terminal || s.Category == "done" || s.Category == "cancelled"
 }
 
-// summary is a digest's content, each task in the first section that fits.
+// summary is a digest's content. Overdue to InProgress put each task in the first section that
+// fits, in the default order; reminders read Overdue and DueToday. fits records every section a
+// task fits, so the digest can follow the DigestSections setting.
 type summary struct {
 	Overdue, DueToday, New, Blocked, InProgress []item
 	Counts                                      map[string]int
 	Open                                        int
 	ids                                         []string
+	all                                         []fitted
 }
 
-func (s *summary) empty() bool {
-	return len(s.Overdue)+len(s.DueToday)+len(s.New)+len(s.Blocked)+len(s.InProgress) == 0
+// fitted is a task and the sections it fits.
+type fitted struct {
+	it   item
+	fits map[string]bool
+}
+
+// view lists, for each section in order (counts aside), the tasks to show there: each task in the
+// first listed section it fits, so leaving a section out moves its tasks to the next one they fit.
+func (s *summary) view(order []string) [][]item {
+	shown := map[string]bool{}
+	out := make([][]item, len(order))
+	for i, sec := range order {
+		if sec == render.SectionCounts {
+			continue
+		}
+		for _, f := range s.all {
+			if f.fits[sec] && !shown[f.it.t.ID] {
+				shown[f.it.t.ID] = true
+				out[i] = append(out[i], f.it)
+			}
+		}
+		sortSection(sec, out[i])
+	}
+	return out
+}
+
+// empty says whether the digest has no task to list in the given sections.
+func (s *summary) empty(order []string) bool {
+	for _, l := range s.view(order) {
+		if len(l) > 0 {
+			return false
+		}
+	}
+	return true
+}
+
+func sortSection(sec string, l []item) {
+	if sec == render.SectionOverdue || sec == render.SectionDueToday {
+		sort.SliceStable(l, func(i, j int) bool { return l[i].t.DueAt.Before(*l[j].t.DueAt) })
+		return
+	}
+	sort.SliceStable(l, func(i, j int) bool { return prio(l[i].t.Priority) < prio(l[j].t.Priority) })
 }
 
 // classify sorts open tasks into the digest's sections. seen is nil before the first digest,
@@ -120,25 +164,17 @@ func classify(items []item, now time.Time, loc *time.Location, seen []string) *s
 		s.Counts[it.label]++
 		s.ids = append(s.ids, it.t.ID)
 		due, dated := render.DueOf(it.t.DueAt)
-		switch {
-		case dated && due.Overdue(now, loc):
-			s.Overdue = append(s.Overdue, it)
-		case dated && due.DueToday(now, loc):
-			s.DueToday = append(s.DueToday, it)
-		case seen != nil && !slices.Contains(seen, it.t.ID):
-			s.New = append(s.New, it)
-		case it.category == "blocked" || it.category == "waiting" || it.t.Blocked:
-			s.Blocked = append(s.Blocked, it)
-		case it.category == "in_progress":
-			s.InProgress = append(s.InProgress, it)
+		fits := map[string]bool{
+			render.SectionOverdue:    dated && due.Overdue(now, loc),
+			render.SectionDueToday:   dated && due.DueToday(now, loc),
+			render.SectionNew:        seen != nil && !slices.Contains(seen, it.t.ID),
+			render.SectionBlocked:    it.category == "blocked" || it.category == "waiting" || it.t.Blocked,
+			render.SectionInProgress: it.category == "in_progress",
 		}
+		s.all = append(s.all, fitted{it: it, fits: fits})
 	}
-	for _, l := range [][]item{s.Overdue, s.DueToday} {
-		sort.SliceStable(l, func(i, j int) bool { return l[i].t.DueAt.Before(*l[j].t.DueAt) })
-	}
-	for _, l := range [][]item{s.New, s.Blocked, s.InProgress} {
-		sort.SliceStable(l, func(i, j int) bool { return prio(l[i].t.Priority) < prio(l[j].t.Priority) })
-	}
+	v := s.view(render.AllDigestSections)
+	s.Overdue, s.DueToday, s.New, s.Blocked, s.InProgress = v[0], v[1], v[2], v[3], v[4]
 	if len(s.ids) > maxSeen {
 		s.ids = s.ids[:maxSeen]
 	}
@@ -168,47 +204,54 @@ func escapeLink(s string) string {
 	return strings.NewReplacer("[", "\\[", "]", "\\]").Replace(s)
 }
 
-func (f *Feature) line(it item, loc *time.Location, withDue bool) string {
+func (f *Feature) line(it item, r *render.R, withDue bool) string {
 	t := it.t
 	l := fmt.Sprintf("- %s[%s %s](%s)", marker(t.Priority), t.Ref, escapeLink(t.Title), f.a.TaskURL(&t))
 	if due, ok := render.DueOf(t.DueAt); withDue && ok {
-		if due.DateOnly {
-			l += " · due " + due.At.Format("Mon 2 Jan")
-		} else {
-			l += " · due " + due.At.In(loc).Format("Mon 2 Jan 15:04")
-		}
+		l += " · " + r.L.T("digest.line.due", "due", r.Due(due))
 	}
 	return l
 }
 
-func (f *Feature) section(b *strings.Builder, title string, items []item, loc *time.Location, withDue bool) {
+// sectionTitles are the digest's section headings.
+var sectionTitles = map[string]string{
+	render.SectionOverdue:    i18n.M("digest.section.overdue"),
+	render.SectionDueToday:   i18n.M("digest.section.due_today"),
+	render.SectionNew:        i18n.M("digest.section.new"),
+	render.SectionBlocked:    i18n.M("digest.section.blocked"),
+	render.SectionInProgress: i18n.M("digest.section.in_progress"),
+}
+
+func (f *Feature) section(b *strings.Builder, r *render.R, sec string, items []item) {
 	if len(items) == 0 {
 		return
 	}
-	fmt.Fprintf(b, "**%s (%d)**\n", title, len(items))
+	fmt.Fprintf(b, "**%s**\n", r.L.T("digest.section.title", "title", r.L.T(sectionTitles[sec]), "count", len(items)))
+	withDue := sec == render.SectionOverdue || sec == render.SectionDueToday
 	for i, it := range items {
 		if i == maxLines {
-			fmt.Fprintf(b, "- …and %d more\n", len(items)-maxLines)
+			b.WriteString("- " + r.L.N("digest.more", len(items)-maxLines) + "\n")
 			break
 		}
-		b.WriteString(f.line(it, loc, withDue) + "\n")
+		b.WriteString(f.line(it, r, withDue) + "\n")
 	}
 }
 
-// renderDigest is the digest DM. An empty summary reads "All clear".
-func (f *Feature) renderDigest(s *summary, now time.Time, loc *time.Location) string {
+// renderDigest is the digest DM in r's language, time zone and date format, with the sections
+// of the DigestSections setting in its order. An empty summary reads "All clear".
+func (f *Feature) renderDigest(s *summary, r *render.R) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "#### Your tix digest for %s\n", now.In(loc).Format("Monday 2 January"))
-	if s.empty() {
-		b.WriteString("All clear: nothing overdue, due today, new, blocked or in progress.\n")
+	order := r.O.DigestSections
+	today := render.Today(r.Now, r.Loc)
+	b.WriteString("#### " + r.L.T("digest.header", "weekday", r.Weekday(r.Now.In(r.Loc).Weekday()), "date", r.AbsDay(today)) + "\n")
+	if s.empty(order) {
+		b.WriteString(r.L.T("digest.all_clear") + "\n")
 	} else {
-		f.section(&b, "Overdue", s.Overdue, loc, true)
-		f.section(&b, "Due today", s.DueToday, loc, true)
-		f.section(&b, "Newly assigned", s.New, loc, false)
-		f.section(&b, "Blocked", s.Blocked, loc, false)
-		f.section(&b, "In progress", s.InProgress, loc, false)
+		for i, items := range s.view(order) {
+			f.section(&b, r, order[i], items)
+		}
 	}
-	if s.Open > 0 {
+	if s.Open > 0 && slices.Contains(order, render.SectionCounts) {
 		labels := make([]string, 0, len(s.Counts))
 		for l := range s.Counts {
 			labels = append(labels, l)
@@ -218,24 +261,24 @@ func (f *Feature) renderDigest(s *summary, now time.Time, loc *time.Location) st
 		for _, l := range labels {
 			parts = append(parts, fmt.Sprintf("%d %s", s.Counts[l], l))
 		}
-		fmt.Fprintf(&b, "\nOpen and assigned to you: %d (%s)", s.Open, strings.Join(parts, ", "))
+		b.WriteString("\n" + r.L.T("digest.counts", "count", s.Open, "states", strings.Join(parts, ", ")))
 	}
 	return strings.TrimRight(b.String(), "\n")
 }
 
 // renderReminders is the reminder DM.
-func (f *Feature) renderReminders(dueToday, overdue []item, loc *time.Location) string {
+func (f *Feature) renderReminders(dueToday, overdue []item, r *render.R) string {
 	var b strings.Builder
 	if len(dueToday) > 0 {
-		b.WriteString("**Due today**\n")
+		b.WriteString("**" + r.L.T("digest.reminders.due_today") + "**\n")
 		for _, it := range dueToday {
-			b.WriteString(f.line(it, loc, true) + "\n")
+			b.WriteString(f.line(it, r, true) + "\n")
 		}
 	}
 	if len(overdue) > 0 {
-		b.WriteString("**Now overdue**\n")
+		b.WriteString("**" + r.L.T("digest.reminders.overdue") + "**\n")
 		for _, it := range overdue {
-			b.WriteString(f.line(it, loc, true) + "\n")
+			b.WriteString(f.line(it, r, true) + "\n")
 		}
 	}
 	return strings.TrimRight(b.String(), "\n")

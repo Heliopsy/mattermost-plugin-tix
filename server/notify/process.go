@@ -7,11 +7,12 @@ import (
 	"regexp"
 	"slices"
 	"strings"
-	"unicode/utf8"
+	"time"
 
 	"github.com/mattermost/mattermost/server/public/model"
 
 	"github.com/heliopsy/mattermost-plugin-tix/server/app"
+	"github.com/heliopsy/mattermost-plugin-tix/server/render"
 	"github.com/heliopsy/mattermost-plugin-tix/server/store"
 	"github.com/heliopsy/mattermost-plugin-tix/server/tix"
 )
@@ -85,6 +86,10 @@ type info struct {
 	From, To   state
 	Comment    string
 	Edited     bool
+	// Status is the task's state now, Priority and DueAt its facts; read from tix (Known).
+	Status   state
+	Priority int
+	DueAt    *time.Time
 	// Known is true when the task was read from tix, so AssigneeID and CreatorID are reliable.
 	Known bool
 }
@@ -124,10 +129,20 @@ func projectKeyOf(ref string) string {
 
 // matchChannels returns the channels whose subscriptions want an event of these kinds in project, each once.
 func matchChannels(subs []store.Subscription, project string, ks []string) []string {
+	var out []string
+	for _, s := range matchSubs(subs, project, ks) {
+		out = append(out, s.ChannelID)
+	}
+	return out
+}
+
+// matchSubs returns, per channel, the first subscription that wants an event of these kinds in
+// project; its formatting overrides decide how the channel's post looks.
+func matchSubs(subs []store.Subscription, project string, ks []string) []store.Subscription {
 	if len(ks) == 0 {
 		return nil
 	}
-	var out []string
+	var out []store.Subscription
 	for _, s := range subs {
 		if s.Project != "" && !strings.EqualFold(s.Project, project) {
 			continue
@@ -139,8 +154,8 @@ func matchChannels(subs []store.Subscription, project string, ks []string) []str
 				break
 			}
 		}
-		if hit && !slices.Contains(out, s.ChannelID) {
-			out = append(out, s.ChannelID)
+		if hit && !slices.ContainsFunc(out, func(o store.Subscription) bool { return o.ChannelID == s.ChannelID }) {
+			out = append(out, s)
 		}
 	}
 	return out
@@ -286,69 +301,128 @@ func escapeLink(s string) string {
 	return strings.NewReplacer("[", "\\[", "]", "\\]").Replace(s)
 }
 
-// excerpt is text on one line, cut to n runes.
-func excerpt(text string, n int) string {
-	line := strings.Join(strings.Fields(text), " ")
-	if utf8.RuneCountInString(line) <= n {
-		return line
-	}
-	return strings.TrimSpace(string([]rune(line)[:n-1])) + "…"
-}
-
-// feedText is the channel post for an event. People are named without pinging them.
-func feedText(ev *Event, in *info, name namer) string {
-	who := "**" + name(ev.ActorID, false) + "**"
+// feedText is the channel post text for an event, in r's language and with r's comment and
+// people settings. People are pinged only with the mentions setting.
+func feedText(ev *Event, in *info, name namer, r *render.R) string {
+	l := r.L
+	who := "**" + name(ev.ActorID, r.Mentions()) + "**"
 	if ev.ActorID == "" {
 		who = "tix"
 	}
+	var s string
 	switch ev.Type {
 	case "task.created":
-		s := fmt.Sprintf("%s created %s", who, in.link())
 		if in.AssigneeID != "" {
-			s += " for **" + name(in.AssigneeID, false) + "**"
+			s = l.T("notify.feed.created_for", "who", who, "task", in.link(), "assignee", name(in.AssigneeID, r.Mentions()))
+		} else {
+			s = l.T("notify.feed.created", "who", who, "task", in.link())
 		}
-		return s
 	case "task.transitioned":
-		return fmt.Sprintf("%s moved %s **%s → %s**", who, in.link(), in.From.name(), in.To.name())
+		s = l.T("notify.feed.moved", "who", who, "task", in.link(), "from", in.From.name(), "to", in.To.name())
 	case "task.updated":
-		if !in.Known {
-			return fmt.Sprintf("%s changed the assignee of %s", who, in.link())
+		switch {
+		case !in.Known:
+			s = l.T("notify.feed.assignee_changed", "who", who, "task", in.link())
+		case in.AssigneeID == "":
+			s = l.T("notify.feed.unassigned", "who", who, "task", in.link())
+		default:
+			s = l.T("notify.feed.assigned", "who", who, "task", in.link(), "assignee", name(in.AssigneeID, r.Mentions()))
 		}
-		if in.AssigneeID == "" {
-			return fmt.Sprintf("%s unassigned %s", who, in.link())
-		}
-		return fmt.Sprintf("%s assigned %s to **%s**", who, in.link(), name(in.AssigneeID, false))
 	case "comment.added":
-		s := fmt.Sprintf("%s commented on %s", who, in.link())
-		if in.Comment != "" {
-			s += "\n> " + excerpt(in.Comment, 280)
-		}
-		return s
+		s = l.T("notify.feed.commented", "who", who, "task", in.link()) + r.Comment(in.Comment)
 	case "task.deleted":
-		return fmt.Sprintf("%s deleted %s", who, in.link())
+		s = l.T("notify.feed.deleted", "who", who, "task", in.link())
 	}
-	return ""
+	return s
 }
 
-// dmText is the personal message for a reason.
-func dmText(ev *Event, in *info, reason int, name namer) string {
+// facts are the task's assignee, priority and due date for the detailed and card feeds, as
+// label and value; only what tix told the plugin.
+func facts(in *info, name namer, r *render.R) [][2]string {
+	if !in.Known {
+		return nil
+	}
+	assignee := r.L.T("app.nobody")
+	if in.AssigneeID != "" {
+		assignee = name(in.AssigneeID, r.Mentions())
+	}
+	out := [][2]string{{r.L.T("notify.feed.fact_assignee"), assignee}}
+	if p := r.Priority(in.Priority); p != "" {
+		out = append(out, [2]string{r.L.T("notify.feed.fact_priority"), p})
+	}
+	if d, ok := render.DueOf(in.DueAt); ok {
+		out = append(out, [2]string{r.L.T("notify.feed.fact_due"), r.DueDay(d)})
+	}
+	return out
+}
+
+// feedPost is the channel post for an event under r's feed detail setting: one line (compact),
+// the line and the task's facts (detailed), or a small card. nil means nothing to post.
+func feedPost(ev *Event, in *info, name namer, r *render.R) *model.Post {
+	text := feedText(ev, in, name, r)
+	if text == "" {
+		return nil
+	}
+	fs := facts(in, name, r)
+	switch r.O.FeedDetail {
+	case render.DetailDetailed:
+		if len(fs) > 0 {
+			parts := make([]string, 0, len(fs))
+			for _, f := range fs {
+				parts = append(parts, r.L.T("notify.feed.fact", "label", f[0], "value", f[1]))
+			}
+			head, quote, _ := strings.Cut(text, "\n")
+			text = head + "\n" + strings.Join(parts, " · ")
+			if quote != "" {
+				text += "\n" + quote
+			}
+		}
+	case render.DetailCard:
+		att := &model.MessageAttachment{Fallback: text, Text: text, Color: render.CategoryColor(in.category(ev))}
+		for _, f := range fs {
+			att.Fields = append(att.Fields, &model.MessageAttachmentField{Title: f[0], Value: f[1], Short: true})
+		}
+		att.Footer = "tix"
+		if in.ProjectKey != "" {
+			att.Footer += " · " + strings.ToUpper(in.ProjectKey)
+		}
+		p := &model.Post{}
+		p.AddProp(model.PostPropsAttachments, []*model.MessageAttachment{att})
+		return p
+	}
+	return &model.Post{Message: text}
+}
+
+// category colours a feed card: the state the task moved to or is in, cancelled for a deletion.
+func (in *info) category(ev *Event) string {
+	switch {
+	case ev.Type == "task.deleted":
+		return "cancelled"
+	case in.To.Category != "":
+		return in.To.Category
+	case in.To.Key != "" && in.To.isClosed():
+		return "done"
+	}
+	return in.Status.Category
+}
+
+// dmText is the personal message for a reason, in r's language (the recipient's), with the
+// comment setting. The actor is @-mentioned, which in a DM pings nobody else.
+func dmText(ev *Event, in *info, reason int, name namer, r *render.R) string {
+	l := r.L
 	who := "**" + name(ev.ActorID, true) + "**"
 	if ev.ActorID == "" {
 		who = "tix"
 	}
-	quote := ""
-	if in.Comment != "" {
-		quote = "\n> " + excerpt(in.Comment, 280)
-	}
 	switch reason {
 	case reasonMentioned:
-		return fmt.Sprintf("%s mentioned you on %s%s", who, in.link(), quote)
+		return l.T("notify.dm.mentioned", "who", who, "task", in.link()) + r.Comment(in.Comment)
 	case reasonAssigned:
-		return fmt.Sprintf("%s assigned you %s", who, in.link())
+		return l.T("notify.dm.assigned", "who", who, "task", in.link())
 	case reasonCommented:
-		return fmt.Sprintf("%s commented on %s%s", who, in.link(), quote)
+		return l.T("notify.dm.commented", "who", who, "task", in.link()) + r.Comment(in.Comment)
 	case reasonClosed:
-		return fmt.Sprintf("%s moved your task %s to **%s**", who, in.link(), in.To.name())
+		return l.T("notify.dm.closed", "who", who, "task", in.link(), "state", in.To.name())
 	}
 	return ""
 }
@@ -379,25 +453,35 @@ func (f *Feature) handle(ev *Event) {
 		mirror = f.a.Store.MirroredComment(ref, ev.ActorID, in.Comment, ev.SubjectID)
 	}
 	var posted []string
-	if text := feedText(ev, in, name); text != "" {
-		for _, ch := range matchChannels(subs, in.ProjectKey, ks) {
-			if mirror != nil && ch == mirror.ChannelID {
-				continue
-			}
-			if _, appErr := f.a.API.CreatePost(&model.Post{UserId: f.a.BotID, ChannelId: ch, Message: text}); appErr != nil {
-				f.a.API.LogWarn("tix: posting to a subscribed channel", "channel_id", ch, "err", appErr.Error())
-				continue
-			}
-			posted = append(posted, ch)
+	// Feed posts are read by the whole channel: the server's language, dated in the time zone of
+	// whoever set the feed up, formatted by the settings and the feed's own overrides.
+	lang := f.a.ServerLocale()
+	format := f.a.Config().Format.OrDefaults()
+	for _, sub := range matchSubs(subs, in.ProjectKey, ks) {
+		ch := sub.ChannelID
+		if mirror != nil && ch == mirror.ChannelID {
+			continue
 		}
+		o := format.WithFeed(render.Feed{Detail: sub.Detail, Comments: sub.Comments, People: sub.People})
+		post := feedPost(ev, in, name, render.New(o, lang, f.a.Location(sub.CreatedBy), f.now()))
+		if post == nil {
+			continue
+		}
+		post.UserId, post.ChannelId = f.a.BotID, ch
+		if _, appErr := f.a.API.CreatePost(post); appErr != nil {
+			f.a.API.LogWarn("tix: posting to a subscribed channel", "channel_id", ch, "err", appErr.Error())
+			continue
+		}
+		posted = append(posted, ch)
 	}
 	if ts, ok := f.cards.(ThreadSyncer); ok && ev.Type == "comment.added" {
 		ts.CommentAdded(ref, ev.SubjectID, ev.ActorID, name(ev.ActorID, false), in.Comment, posted)
 	}
 
-	for _, r := range recipients(ev, in, targets(ev, in), f.directory()) {
-		if err := f.a.DM(r.userID, &model.Post{Message: dmText(ev, in, r.reason, name)}); err != nil {
-			f.a.API.LogWarn("tix: sending a notification DM", "user_id", r.userID, "err", err.Error())
+	for _, rc := range recipients(ev, in, targets(ev, in), f.directory()) {
+		msg := dmText(ev, in, rc.reason, name, f.a.RendererFor(rc.userID))
+		if err := f.a.DM(rc.userID, &model.Post{Message: msg}); err != nil {
+			f.a.API.LogWarn("tix: sending a notification DM", "user_id", rc.userID, "err", err.Error())
 		}
 	}
 }
@@ -446,6 +530,7 @@ func (f *Feature) describe(ev *Event) *info {
 	in.Known = true
 	in.Title, in.URL = t.Title, f.a.TaskURL(t)
 	in.AssigneeID, in.CreatorID = t.AssigneeActorID, t.CreatorActorID
+	in.Priority, in.DueAt, in.Status = t.Priority, t.DueAt, state{Key: t.Status}
 	if ev.Type == "task.created" {
 		in.Comment = t.Body
 	}

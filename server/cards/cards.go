@@ -342,14 +342,16 @@ func (f *Feature) card(viewer string, t *task, index int) *model.MessageAttachme
 	if err != nil {
 		wf = nil
 	}
+	// A card is a channel post: it speaks the server's language, dated in its author's zone.
+	r := f.a.Renderer(f.a.ServerLocale(), f.a.Location(viewer))
 	return buildCard(cardInput{
 		Task:      t,
 		Workflow:  wf,
 		Project:   proj,
 		URL:       f.a.TaskURL(&t.Task),
-		Assignee:  f.a.MentionFor(viewer, t.AssigneeActorID),
+		Assignee:  f.a.MentionFor(r.L, viewer, t.AssigneeActorID),
 		ActionURL: f.a.PluginURL(actionPath),
-		Loc:       f.a.Location(viewer),
+		R:         r,
 		Index:     index,
 	})
 }
@@ -421,5 +423,5 @@ func errText(err error) string {
 	if errors.Is(err, app.ErrNotLinked) {
 		return "Connect your Mattermost account to tix first: run `/tix connect`."
 	}
-	return app.ErrText(err)
+	return app.ErrText(app.EN, err)
 }

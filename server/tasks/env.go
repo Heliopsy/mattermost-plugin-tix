@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/heliopsy/mattermost-plugin-tix/server/i18n"
+	"github.com/heliopsy/mattermost-plugin-tix/server/render"
 	"github.com/heliopsy/mattermost-plugin-tix/server/store"
 	"github.com/heliopsy/mattermost-plugin-tix/server/tix"
 )
@@ -29,6 +31,16 @@ type env struct {
 	mmActor func(username string) (actorID string, ok bool, err error)
 	// now is the current time in the user's Mattermost time zone, which due dates are read in.
 	now func() time.Time
+	// format is the formatting settings; the zero value means the defaults.
+	format render.Options
+	// lang is the user's language; nil is English.
+	lang *i18n.Localizer
+}
+
+// r renders for the user at the current time.
+func (e *env) r() *render.R {
+	now := e.now()
+	return render.New(e.format.OrDefaults(), e.lang, now.Location(), now)
 }
 
 // isProject tells whether a word is the key of a project the user can see.

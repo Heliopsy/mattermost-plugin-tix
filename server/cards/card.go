@@ -43,25 +43,6 @@ func assignTask(ctx context.Context, c *tix.Client, ref, actorID string) (*task,
 	return &t, c.Do(ctx, http.MethodPatch, "/tasks/"+url.PathEscape(ref), nil, map[string]any{"assignee_actor_id": actorID}, &t)
 }
 
-var priorityNames = map[int]string{1: "Highest", 2: "High", 3: "Normal", 4: "Low", 5: "Lowest"}
-
-func priorityName(p int) string {
-	if n, ok := priorityNames[p]; ok {
-		return n
-	}
-	return ""
-}
-
-// Colours by state category, so a colour means the same in every tenant.
-var categoryColors = map[string]string{
-	"todo":        "#8A8F98",
-	"in_progress": "#1E88E5",
-	"blocked":     "#F5A623",
-	"waiting":     "#F5A623",
-	"done":        "#2E7D32",
-	"cancelled":   "#37474F",
-}
-
 // category is the state's category, derived as tix does when the workflow leaves it empty.
 func category(w *tix.Workflow, status string) string {
 	if w == nil {
@@ -99,9 +80,9 @@ func terminal(w *tix.Workflow, status string) bool {
 // Order in which next states become buttons: move work forward first.
 var categoryRank = map[string]int{"in_progress": 0, "done": 1, "waiting": 2, "blocked": 3, "todo": 4, "cancelled": 5}
 
-// nextTransitions are at most maxTransitions moves out of the task's state, the sensible ones first.
-func nextTransitions(w *tix.Workflow, status string) []tix.Transition {
-	if w == nil {
+// nextTransitions are at most limit moves out of the task's state, the sensible ones first.
+func nextTransitions(w *tix.Workflow, status string, limit int) []tix.Transition {
+	if w == nil || limit <= 0 {
 		return nil
 	}
 	ts := w.NextStates(status)
@@ -116,14 +97,12 @@ func nextTransitions(w *tix.Workflow, status string) []tix.Transition {
 		}
 		seen[t.To] = true
 		out = append(out, t)
-		if len(out) == maxTransitions {
+		if len(out) == limit {
 			break
 		}
 	}
 	return out
 }
-
-const maxTransitions = 3
 
 // Action names carried in a button's context.
 const (
@@ -140,41 +119,59 @@ type cardInput struct {
 	URL       string
 	Assignee  string
 	ActionURL string
-	// Loc is the time zone of the person the card is drawn for, which a due time is dated in.
-	Loc *time.Location
+	// R renders labels and dates: the card's language (the channel's), the time zone of the
+	// person it is drawn for and the card settings.
+	R *render.R
 	// Index is the card's position in its post; it keeps action ids unique within the post.
 	Index int
 }
 
-// buildCard renders a task as a message attachment with action buttons.
+// buildCard renders a task as a message attachment with action buttons. The fields and buttons
+// follow the card settings.
 func buildCard(in cardInput) *model.MessageAttachment {
-	t := in.Task
+	t, r := in.Task, in.R
+	if r == nil {
+		r = render.New(render.Defaults(), nil, nil, time.Now())
+	}
 	label := stateLabel(in.Workflow, t.Status)
-	status := label
-	if t.Blocked && !terminal(in.Workflow, t.Status) {
-		status += " (blocked by a dependency)"
-	}
-	fields := []*model.MessageAttachmentField{
-		{Title: "Status", Value: status, Short: true},
-		{Title: "Assignee", Value: in.Assignee, Short: true},
-	}
-	if p := priorityName(t.Priority); p != "" {
-		fields = append(fields, &model.MessageAttachmentField{Title: "Priority", Value: p, Short: true})
-	}
-	if d, ok := render.DueOf(t.DueAt); ok {
-		fields = append(fields, &model.MessageAttachmentField{Title: "Due", Value: d.Date(in.Loc).Format("2006-01-02"), Short: true})
-	}
-	if len(t.Tags) > 0 {
-		fields = append(fields, &model.MessageAttachmentField{Title: "Tags", Value: strings.Join(t.Tags, ", "), Short: true})
+	var fields []*model.MessageAttachmentField
+	add := func(title, value string) {
+		fields = append(fields, &model.MessageAttachmentField{Title: title, Value: value, Short: true})
 	}
 	footer := "tix"
-	if in.Project != nil && in.Project.Name != "" {
-		footer += " · " + in.Project.Name
+	project := ""
+	for _, f := range r.O.CardFields {
+		switch f {
+		case render.FieldStatus:
+			status := label
+			if t.Blocked && !terminal(in.Workflow, t.Status) {
+				status = r.L.T("cards.card.status_blocked", "status", label)
+			}
+			add(r.L.T("cards.card.status"), status)
+		case render.FieldAssignee:
+			add(r.L.T("cards.card.assignee"), in.Assignee)
+		case render.FieldPriority:
+			if p := r.Priority(t.Priority); p != "" {
+				add(r.L.T("cards.card.priority"), p)
+			}
+		case render.FieldDue:
+			if d, ok := render.DueOf(t.DueAt); ok {
+				add(r.L.T("cards.card.due"), r.DueDay(d))
+			}
+		case render.FieldTags:
+			if len(t.Tags) > 0 {
+				add(r.L.T("cards.card.tags"), strings.Join(t.Tags, ", "))
+			}
+		case render.FieldProject:
+			if in.Project != nil && in.Project.Name != "" {
+				project = in.Project.Name
+			}
+		}
 	}
-	color, ok := categoryColors[category(in.Workflow, t.Status)]
-	if !ok {
-		color = categoryColors["todo"]
+	if project != "" {
+		footer = "tix · " + project
 	}
+	color := render.CategoryColor(category(in.Workflow, t.Status))
 	return &model.MessageAttachment{
 		Fallback:  fmt.Sprintf("%s: %s (%s)", t.Ref, t.Title, label),
 		Color:     color,
@@ -182,11 +179,11 @@ func buildCard(in cardInput) *model.MessageAttachment {
 		TitleLink: in.URL,
 		Fields:    fields,
 		Footer:    footer,
-		Actions:   buildActions(in),
+		Actions:   buildActions(in, r),
 	}
 }
 
-func buildActions(in cardInput) []*model.PostAction {
+func buildActions(in cardInput, r *render.R) []*model.PostAction {
 	t := in.Task
 	var out []*model.PostAction
 	add := func(name, style string, ctx map[string]any) {
@@ -199,7 +196,7 @@ func buildActions(in cardInput) []*model.PostAction {
 			Integration: &model.PostActionIntegration{URL: in.ActionURL, Context: ctx},
 		})
 	}
-	for _, tr := range nextTransitions(in.Workflow, t.Status) {
+	for _, tr := range nextTransitions(in.Workflow, t.Status, r.O.CardButtons) {
 		style := "default"
 		switch category(in.Workflow, tr.To) {
 		case "in_progress":
@@ -209,9 +206,11 @@ func buildActions(in cardInput) []*model.PostAction {
 		}
 		add(stateLabel(in.Workflow, tr.To), style, map[string]any{"action": actTransition, "to": tr.To})
 	}
-	if !terminal(in.Workflow, t.Status) {
-		add("Assign to me", "default", map[string]any{"action": actAssign})
+	if r.O.AssignButton && !terminal(in.Workflow, t.Status) {
+		add(r.L.T("cards.card.assign_me"), "default", map[string]any{"action": actAssign})
 	}
-	add("Comment", "default", map[string]any{"action": actComment})
+	if r.O.CommentButton {
+		add(r.L.T("cards.card.comment"), "default", map[string]any{"action": actComment})
+	}
 	return out
 }

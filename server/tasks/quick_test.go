@@ -22,6 +22,7 @@ import (
 
 	"github.com/heliopsy/mattermost-plugin-tix/server/app"
 	"github.com/heliopsy/mattermost-plugin-tix/server/command"
+	"github.com/heliopsy/mattermost-plugin-tix/server/render"
 	"github.com/heliopsy/mattermost-plugin-tix/server/store"
 	"github.com/heliopsy/mattermost-plugin-tix/server/tix"
 )
@@ -426,6 +427,16 @@ func TestDueInTimeZone(t *testing.T) {
 	assert.NotContains(t, got, "INFRA-3")
 
 	created := ft.listed[0]
-	assert.Contains(t, e.card(&created, nil, "Created "), "**Due:** Tue 17.11.2026", "the reported bug")
+	assert.Contains(t, e.card(&created, nil, "Created "), "**Due:** 17.11.2026", "the reported bug")
 	assert.NotContains(t, e.card(&created, nil, "Created "), "overdue")
+
+	// The date format setting reaches task commands.
+	for format, want := range map[string]string{render.DateISO: "**Due:** 2026-11-17", render.DateRelative: "**Due:** today", render.DateEU: "**Due:** 17.11.2026"} {
+		e.format = render.Defaults()
+		e.format.DateFormat = format
+		assert.Contains(t, e.card(&created, nil, ""), want, format)
+	}
+	e.format.DateFormat = render.DateRelative
+	yesterday := ft.listed[1]
+	assert.Contains(t, e.line(&yesterday, false), "**overdue** yesterday")
 }

@@ -7,7 +7,6 @@ package app
 import (
 	"context"
 	"errors"
-	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -16,6 +15,8 @@ import (
 	"github.com/mattermost/mattermost/server/public/plugin"
 	"github.com/mattermost/mattermost/server/public/pluginapi"
 
+	"github.com/heliopsy/mattermost-plugin-tix/server/i18n"
+	"github.com/heliopsy/mattermost-plugin-tix/server/render"
 	"github.com/heliopsy/mattermost-plugin-tix/server/store"
 	"github.com/heliopsy/mattermost-plugin-tix/server/tix"
 )
@@ -44,10 +45,24 @@ type Config struct {
 	CardQuietMinutes int
 	// CreateEmoji is the reaction that turns a message into a task, without colons.
 	CreateEmoji string
+	// Format is the formatting settings (feed detail, comment text, people, card fields and
+	// buttons, date format, digest sections), parsed. Features render through Renderer, never
+	// from these fields directly.
+	Format render.Options
+	// BotDisplayName and BotIconURL rename the bot and give it a custom icon (an https PNG).
+	BotDisplayName string
+	BotIconURL     string
 }
 
 // ErrNotLinked is returned when the acting user has not run /tix connect.
-var ErrNotLinked = errors.New("your Mattermost account is not connected to tix yet: run `/tix connect`")
+var ErrNotLinked = i18n.NewError("app.err.not_linked")
+
+// EN renders in English. It marks text still waiting for the reader's language; nothing uses
+// it once every feature passes its reader's localizer.
+var EN = i18n.For(i18n.Fallback)
+
+// errNoURL is returned while the tix server URL is not configured.
+var errNoURL = i18n.NewError("app.err.no_url")
 
 // App is shared by every feature package.
 type App struct {
@@ -93,7 +108,7 @@ func (a *App) TixURL() string {
 // NewTix returns a client for token against the configured server.
 func (a *App) NewTix(token string) (*tix.Client, error) {
 	if a.TixURL() == "" {
-		return nil, errors.New("the tix server URL is not configured; an admin sets it in System Console > Plugins > tix")
+		return nil, errNoURL
 	}
 	return tix.New(a.TixURL(), token), nil
 }
@@ -179,7 +194,7 @@ func (a *App) WorkflowFor(userID, projectID string) (*tix.Workflow, *tix.Project
 		}
 	}
 	if proj == nil {
-		return nil, nil, fmt.Errorf("project %s not found", projectID)
+		return nil, nil, i18n.NewError("app.err.project_not_found", "project", projectID)
 	}
 	ws, err := a.Workflows(userID)
 	if err != nil {
@@ -190,7 +205,7 @@ func (a *App) WorkflowFor(userID, projectID string) (*tix.Workflow, *tix.Project
 			return &ws[i], proj, nil
 		}
 	}
-	return nil, proj, fmt.Errorf("workflow of project %s not found", proj.Key)
+	return nil, proj, i18n.NewError("app.err.workflow_not_found", "project", proj.Key)
 }
 
 // Actor returns a tix actor by id as the user sees it, cached briefly.
@@ -228,10 +243,11 @@ func (a *App) InvalidateUser(userID string) {
 	a.mu.Unlock()
 }
 
-// MentionFor renders a tix actor as an @mention when they are linked, else their name.
-func (a *App) MentionFor(viewerID, actorID string) string {
+// MentionFor renders a tix actor as an @mention when they are linked, else their name; nobody
+// is written in l's language.
+func (a *App) MentionFor(l *i18n.Localizer, viewerID, actorID string) string {
 	if actorID == "" {
-		return "nobody"
+		return l.T("app.nobody")
 	}
 	if uid, err := a.Store.UserForActor(actorID); err == nil {
 		if u, err := a.API.GetUser(uid); err == nil {
@@ -298,19 +314,59 @@ func (a *App) PluginURL(path string) string {
 	return site + "/plugins/" + PluginID + path
 }
 
-// ErrText turns an error into a short line for a user.
-func ErrText(err error) string {
+// ErrText turns an error into a short line for a user, in l's language. tix's own messages
+// are passed on as tix wrote them; an error that is neither tix's nor the plugin's shows as is.
+func ErrText(l *i18n.Localizer, err error) string {
 	var te *tix.Error
 	if errors.As(err, &te) {
 		switch te.Status {
 		case 401:
-			return "tix rejected your token (expired or revoked?). Reconnect with `/tix connect`."
+			return l.T("app.err.tix_401")
 		case 403:
-			return "tix says you are not allowed to do that: " + te.Message
+			return l.T("app.err.tix_403", "message", te.Message)
 		case 404:
-			return "Not found in tix."
+			return l.T("app.err.tix_404")
 		}
-		return "tix: " + te.Message
+		return l.T("app.err.tix", "message", te.Message)
+	}
+	var ie *i18n.Error
+	if errors.As(err, &ie) {
+		return ie.Text(l)
 	}
 	return err.Error()
+}
+
+// Locale is the language of a user's Mattermost (their own setting, else the server default).
+func (a *App) Locale(userID string) *i18n.Localizer {
+	if u, appErr := a.API.GetUser(userID); appErr == nil && u != nil && u.Locale != "" {
+		return i18n.For(u.Locale)
+	}
+	return a.ServerLocale()
+}
+
+// ServerLocale is the language of posts many people read (channel feeds, cards, bot posts in a
+// channel) and of the slash command autocomplete, which the server registers once for everyone:
+// Default Client Language in System Console > Site Configuration > Localization, else Default
+// Server Language, else English.
+func (a *App) ServerLocale() *i18n.Localizer {
+	if cfg := a.API.GetConfig(); cfg != nil {
+		ls := cfg.LocalizationSettings
+		if ls.DefaultClientLocale != nil && *ls.DefaultClientLocale != "" {
+			return i18n.For(*ls.DefaultClientLocale)
+		}
+		if ls.DefaultServerLocale != nil && *ls.DefaultServerLocale != "" {
+			return i18n.For(*ls.DefaultServerLocale)
+		}
+	}
+	return i18n.For(i18n.Fallback)
+}
+
+// Renderer renders for a reader in language l and time zone loc, with the formatting settings.
+func (a *App) Renderer(l *i18n.Localizer, loc *time.Location) *render.R {
+	return render.New(a.Config().Format.OrDefaults(), l, loc, time.Now())
+}
+
+// RendererFor renders for one user: their language and time zone.
+func (a *App) RendererFor(userID string) *render.R {
+	return a.Renderer(a.Locale(userID), a.Location(userID))
 }

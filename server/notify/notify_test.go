@@ -16,6 +16,8 @@ import (
 
 	"github.com/heliopsy/mattermost-plugin-tix/server/api"
 	"github.com/heliopsy/mattermost-plugin-tix/server/app"
+	"github.com/heliopsy/mattermost-plugin-tix/server/i18n"
+	"github.com/heliopsy/mattermost-plugin-tix/server/render"
 	"github.com/heliopsy/mattermost-plugin-tix/server/store"
 )
 
@@ -226,6 +228,7 @@ func TestRecipients(t *testing.T) {
 }
 
 func TestTexts(t *testing.T) {
+	r := render.New(render.Defaults(), nil, time.UTC, time.Now())
 	name := func(id string, ping bool) string {
 		n := map[string]string{actorLocal: "alice", actorBob: "bob"}[id]
 		if ping {
@@ -238,18 +241,132 @@ func TestTexts(t *testing.T) {
 		From: state{Key: "todo", Label: "To do"}, To: state{Key: "doing", Label: "Doing"}, Known: true, AssigneeID: actorBob,
 	}
 	assert.Equal(t, `**alice** moved [work-2 Fix \[backups\]](https://tix.example.com/tasks/work-2) **To do → Doing**`,
-		feedText(mustEvent(t, payloadTransitioned), in, name))
+		feedText(mustEvent(t, payloadTransitioned), in, name, r))
 	assert.Equal(t, `**alice** assigned [work-2 Fix \[backups\]](https://tix.example.com/tasks/work-2) to **bob**`,
-		feedText(mustEvent(t, payloadAssigned), in, name))
+		feedText(mustEvent(t, payloadAssigned), in, name, r))
 	in.Comment = "looks\ngood"
 	assert.Equal(t, "**alice** commented on [work-2 Fix \\[backups\\]](https://tix.example.com/tasks/work-2)\n> looks good",
-		feedText(mustEvent(t, payloadCommented), in, name))
+		feedText(mustEvent(t, payloadCommented), in, name, r))
 	assert.Equal(t, "**@alice** mentioned you on [work-2 Fix \\[backups\\]](https://tix.example.com/tasks/work-2)\n> looks good",
-		dmText(mustEvent(t, payloadCommented), in, reasonMentioned, name))
+		dmText(mustEvent(t, payloadCommented), in, reasonMentioned, name, r))
 
 	raw := &info{Ref: "work-2", From: state{Key: "todo"}, To: state{Key: "doing"}}
-	assert.Equal(t, "**alice** moved work-2 **todo → doing**", feedText(mustEvent(t, payloadTransitioned), raw, name))
-	assert.Equal(t, "**alice** changed the assignee of work-2", feedText(mustEvent(t, payloadAssigned), raw, name))
+	assert.Equal(t, "**alice** moved work-2 **todo → doing**", feedText(mustEvent(t, payloadTransitioned), raw, name, r))
+	assert.Equal(t, "**alice** changed the assignee of work-2", feedText(mustEvent(t, payloadAssigned), raw, name, r))
+}
+
+// TestFeedSettings: the feed detail, comment and people settings, a feed's own overrides and the
+// reader's language, on the same events.
+func TestFeedSettings(t *testing.T) {
+	now := time.Date(2026, 11, 17, 9, 0, 0, 0, time.UTC)
+	due := time.Date(2026, 11, 18, 0, 0, 0, 0, time.UTC)
+	name := func(id string, ping bool) string {
+		n := map[string]string{actorLocal: "alice", actorBob: "bob"}[id]
+		if ping {
+			return "@" + n
+		}
+		return n
+	}
+	long := strings.Repeat("word ", 60) + "end"
+	in := func() *info {
+		return &info{
+			Ref: "work-2", Title: "Fix backups", URL: "https://tix.example.com/tasks/work-2", ProjectKey: "work",
+			From: state{Key: "todo", Label: "To do"}, To: state{Key: "doing", Label: "Doing", Category: "in_progress"},
+			Known: true, AssigneeID: actorBob, Priority: 2, DueAt: &due, Comment: "first line\nsecond line",
+		}
+	}
+	with := func(f render.Feed) render.Options { return render.Defaults().WithFeed(f) }
+	link := "[work-2 Fix backups](https://tix.example.com/tasks/work-2)"
+	for _, tc := range []struct {
+		name    string
+		o       render.Options
+		lang    string
+		ev      string
+		comment string
+		want    string
+	}{
+		{"compact move", render.Defaults(), "en", payloadTransitioned, "", "**alice** moved " + link + " **To do → Doing**"},
+		{
+			"detailed move", with(render.Feed{Detail: render.DetailDetailed}), "en", payloadTransitioned, "",
+			"**alice** moved " + link + " **To do → Doing**\nAssignee: **bob** · Priority: **High** · Due: **18.11.2026**",
+		},
+		{
+			"detailed comment keeps the quote last", with(render.Feed{Detail: render.DetailDetailed}), "en", payloadCommented, "",
+			"**alice** commented on " + link + "\nAssignee: **bob** · Priority: **High** · Due: **18.11.2026**\n> first line second line",
+		},
+		{"comment excerpt", render.Defaults(), "en", payloadCommented, "", "**alice** commented on " + link + "\n> first line second line"},
+		{
+			"comment excerpt is cut at a word", render.Defaults(), "en", payloadCommented, long,
+			"**alice** commented on " + link + "\n> " + strings.TrimSpace(strings.Repeat("word ", 40)) + "…",
+		},
+		{
+			"comment in full", with(render.Feed{Comments: render.CommentFull}), "en", payloadCommented, "",
+			"**alice** commented on " + link + "\n> first line\n> second line",
+		},
+		{"no comment text", with(render.Feed{Comments: render.CommentNone}), "en", payloadCommented, "", "**alice** commented on " + link},
+		{"mentions ping", with(render.Feed{People: render.PeopleMentions}), "en", payloadAssigned, "", "**@alice** assigned " + link + " to **@bob**"},
+		{"names do not", render.Defaults(), "en", payloadAssigned, "", "**alice** assigned " + link + " to **bob**"},
+		{"relative due", func() render.Options {
+			o := with(render.Feed{Detail: render.DetailDetailed})
+			o.DateFormat = render.DateRelative
+			return o
+		}(), "en", payloadCreated, "", "**alice** created " + link + " for **bob**\nAssignee: **bob** · Priority: **High** · Due: **tomorrow**"},
+		{
+			"in Bulgarian", with(render.Feed{Detail: render.DetailDetailed}), "bg", payloadTransitioned, "",
+			"**alice** премести " + link + " **To do → Doing**\nВъзложена на: **bob** · Приоритет: **Висок** · Срок: **18.11.2026**",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			x := in()
+			if tc.comment != "" {
+				x.Comment = tc.comment
+			}
+			p := feedPost(mustEvent(t, tc.ev), x, name, render.New(tc.o, i18n.For(tc.lang), time.UTC, now))
+			require.NotNil(t, p)
+			assert.Equal(t, tc.want, p.Message)
+		})
+	}
+
+	t.Run("card", func(t *testing.T) {
+		p := feedPost(mustEvent(t, payloadTransitioned), in(), name, render.New(with(render.Feed{Detail: render.DetailCard}), nil, time.UTC, now))
+		require.NotNil(t, p)
+		assert.Empty(t, p.Message)
+		atts := p.Attachments()
+		require.Len(t, atts, 1)
+		assert.Equal(t, "**alice** moved "+link+" **To do → Doing**", atts[0].Text)
+		assert.Equal(t, "#1E88E5", atts[0].Color)
+		assert.Equal(t, "tix · WORK", atts[0].Footer)
+		var fields []string
+		for _, f := range atts[0].Fields {
+			fields = append(fields, f.Title+"="+f.Value.(string))
+		}
+		assert.Equal(t, []string{"Assignee=bob", "Priority=High", "Due=18.11.2026"}, fields)
+	})
+
+	t.Run("a DM in the recipient's language", func(t *testing.T) {
+		got := dmText(mustEvent(t, payloadCommented), in(), reasonCommented, name, render.New(render.Defaults(), i18n.For("bg"), time.UTC, now))
+		assert.Equal(t, "**@alice** коментира "+link+"\n> first line second line", got)
+		got = dmText(mustEvent(t, payloadAssigned), in(), reasonAssigned, name, render.New(render.Defaults(), i18n.For("bg"), time.UTC, now))
+		assert.Equal(t, "**@alice** ти възложи "+link, got)
+	})
+}
+
+// TestFeedOverrides: each channel gets its own subscription's format.
+func TestFeedOverrides(t *testing.T) {
+	subs := []store.Subscription{
+		{ChannelID: "ch-a", Project: "work", Events: []string{kindTransitioned}, Detail: render.DetailCard},
+		{ChannelID: "ch-b", Project: "", Events: []string{kindTransitioned}},
+		{ChannelID: "ch-a", Project: "", Events: []string{kindTransitioned}, Detail: render.DetailDetailed},
+	}
+	got := matchSubs(subs, "work", []string{kindTransitioned})
+	require.Len(t, got, 2)
+	assert.Equal(t, "ch-a", got[0].ChannelID)
+	assert.Equal(t, render.DetailCard, got[0].Detail, "the first matching feed of a channel decides")
+	assert.Equal(t, "ch-b", got[1].ChannelID)
+	o := render.Defaults()
+	o.FeedDetail = render.DetailDetailed
+	assert.Equal(t, render.DetailCard, o.WithFeed(render.Feed{Detail: got[0].Detail}).FeedDetail)
+	assert.Equal(t, render.DetailDetailed, o.WithFeed(render.Feed{Detail: got[1].Detail}).FeedDetail, "no override keeps the setting")
 }
 
 func TestProjectKeyOf(t *testing.T) {
@@ -307,4 +424,17 @@ func TestWebhookEndpoint(t *testing.T) {
 	w = httptest.NewRecorder()
 	h2.ServeHTTP(&plugin.Context{}, w, r)
 	assert.Equal(t, http.StatusUnauthorized, w.Code, "no secret configured rejects everything")
+}
+
+func TestParseFeedOptions(t *testing.T) {
+	opts, rest, err := parseFeedOptions([]string{"created", "--detail", "card", "--comments=none", "commented", "--people", "MENTIONS"})
+	require.NoError(t, err)
+	assert.Equal(t, render.Feed{Detail: "card", Comments: "none", People: "mentions"}, opts)
+	assert.Equal(t, []string{"created", "commented"}, rest)
+	assert.Equal(t, "--detail card --comments none --people mentions", feedFormat(store.Subscription{Detail: "card", Comments: "none", People: "mentions"}))
+	assert.Empty(t, feedFormat(store.Subscription{}), "old records have no overrides")
+	for _, bad := range [][]string{{"--detail"}, {"--detail", "huge"}, {"--colour", "red"}, {"--people=all"}} {
+		_, _, err := parseFeedOptions(bad)
+		assert.Error(t, err, bad)
+	}
 }
