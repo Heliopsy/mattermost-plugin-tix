@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
 import {getMe, getProjects, isNotLinked} from 'client';
+import {errorText} from 'i18n';
 import {useCallback, useEffect, useMemo, useState} from 'react';
 import {FormattedMessage, useIntl} from 'react-intl';
 import {useDispatch, useSelector} from 'react-redux';
@@ -97,9 +98,9 @@ function ProjectTab({refresh, onOpen, onNotLinked}: ListProps) {
                 onNotLinked();
                 return;
             }
-            setError((e as Error).message);
+            setError(errorText(intl, e));
         });
-    }, [onNotLinked]);
+    }, [onNotLinked, intl]);
 
     const filter = useMemo(() => ({project, q, open: true}), [project, q]);
     const tasks = useTasks(filter, refresh, onNotLinked, !project);
@@ -189,9 +190,9 @@ export default function TixSidebar() {
             setMe(m);
             setNotLinked(!m.linked);
         } catch (e) {
-            setMeError((e as Error).message);
+            setMeError(errorText(intl, e));
         }
-    }, []);
+    }, [intl]);
 
     useEffect(() => {
         loadMe();

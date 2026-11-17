@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
 import {isNotLinked, listTasks} from 'client';
+import {errorText} from 'i18n';
 import {useCallback, useEffect, useRef, useState} from 'react';
+import {useIntl} from 'react-intl';
 
 import type {Task, TaskFilter} from 'types/tix';
 
@@ -17,6 +19,7 @@ export type TasksState = {
 // useTasks lists tasks for a filter and reloads when the filter or refresh changes.
 // skip leaves the list empty, e.g. until a project is picked.
 export default function useTasks(filter: TaskFilter, refresh: number, onNotLinked: () => void, skip = false): TasksState {
+    const intl = useIntl();
     const [loading, setLoading] = useState(!skip);
     const [error, setError] = useState('');
     const [items, setItems] = useState<Task[]>([]);
@@ -44,13 +47,13 @@ export default function useTasks(filter: TaskFilter, refresh: number, onNotLinke
                 onNotLinked();
                 return;
             }
-            setError((e as Error).message);
+            setError(errorText(intl, e));
         } finally {
             if (mine === seq.current) {
                 setLoading(false);
             }
         }
-    }, [key, onNotLinked]);
+    }, [key, onNotLinked, intl]);
 
     useEffect(() => {
         if (skip) {

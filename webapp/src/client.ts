@@ -47,7 +47,8 @@ export async function doFetch<T>(path: string, options: Options = {}): Promise<T
 
     const body = await response.json().catch(() => null);
     if (!response.ok) {
-        throw new ApiError(body?.error ?? `Request failed with status ${response.status}`, response.status, body?.code ?? '');
+        // Without a server message the UI words the failure itself (errorText in i18n.ts).
+        throw new ApiError(body?.error ?? '', response.status, body?.code ?? '');
     }
     return body as T;
 }

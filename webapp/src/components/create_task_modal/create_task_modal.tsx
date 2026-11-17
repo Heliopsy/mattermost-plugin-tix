@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
 import {createTask, getMe, getProjects, isNotLinked, postMessage} from 'client';
+import {errorText} from 'i18n';
 import {useEffect, useMemo, useRef, useState} from 'react';
 import {FormattedMessage, useIntl} from 'react-intl';
 import {useDispatch, useSelector} from 'react-redux';
@@ -108,7 +109,7 @@ export function CreateTaskModal({prefill, onClose, onShowSidebar}: Props) {
                 setNotLinked(true);
                 return;
             }
-            setLoadError((e as Error).message);
+            setLoadError(errorText(intl, e));
         }
     };
 
@@ -161,7 +162,7 @@ export function CreateTaskModal({prefill, onClose, onShowSidebar}: Props) {
                 setNotLinked(true);
                 return;
             }
-            setError((e as Error).message);
+            setError(errorText(intl, e));
         } finally {
             setSubmitting(false);
         }
@@ -181,7 +182,7 @@ export function CreateTaskModal({prefill, onClose, onShowSidebar}: Props) {
             await postMessage(prefill.channelId, prefill.rootId ?? '', message);
             setPosted(true);
         } catch (e) {
-            setError((e as Error).message);
+            setError(errorText(intl, e));
         } finally {
             setPosting(false);
         }
