@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.0 (17.11.2026)
 
 - Languages: the plugin speaks English and Bulgarian, following each person's Mattermost language; channel
   posts, cards and the `/tix` autocomplete use the server's default language.

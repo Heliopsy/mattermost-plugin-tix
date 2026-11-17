@@ -14,7 +14,7 @@ Download `cc.heliopsy.tix-<version>.tar.gz` from the [releases](https://github.c
 and upload it in **System Console > Plugins > Plugin Management**, or let the server fetch it:
 
 ```bash
-mmctl plugin install-url https://github.com/heliopsy/mattermost-plugin-tix/releases/download/v0.1.1/cc.heliopsy.tix-0.1.1.tar.gz
+mmctl plugin install-url https://github.com/heliopsy/mattermost-plugin-tix/releases/download/v0.2.0/cc.heliopsy.tix-0.2.0.tar.gz
 mmctl plugin enable cc.heliopsy.tix
 ```
 
