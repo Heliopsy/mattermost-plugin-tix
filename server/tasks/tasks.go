@@ -18,6 +18,7 @@ import (
 	"github.com/heliopsy/mattermost-plugin-tix/server/api"
 	"github.com/heliopsy/mattermost-plugin-tix/server/app"
 	"github.com/heliopsy/mattermost-plugin-tix/server/command"
+	"github.com/heliopsy/mattermost-plugin-tix/server/i18n"
 	"github.com/heliopsy/mattermost-plugin-tix/server/store"
 	"github.com/heliopsy/mattermost-plugin-tix/server/tix"
 )
@@ -82,75 +83,75 @@ func (f *Feature) url(route string) string {
 
 // Commands returns the feature's /tix subcommands.
 func (f *Feature) Commands() []command.Sub {
-	refArg := func(n *model.AutocompleteData) {
-		n.AddDynamicListArgument("Task reference, e.g. infra-42", f.url(routeRefs), true)
+	refArg := func(n *model.AutocompleteData, l *i18n.Localizer) {
+		n.AddDynamicListArgument(l.T("tasks.cmd.arg_ref"), f.url(routeRefs), true)
 	}
-	withRef := func(hint, help string) func(*model.AutocompleteData) {
-		return func(n *model.AutocompleteData) {
-			refArg(n)
-			n.AddTextArgument(help, hint, "")
+	withRef := func(hint, helpID string) func(*model.AutocompleteData, *i18n.Localizer) {
+		return func(n *model.AutocompleteData, l *i18n.Localizer) {
+			refArg(n, l)
+			n.AddTextArgument(l.T(helpID), hint, "")
 		}
 	}
 	return []command.Sub{
 		{
 			Name: "new", Aliases: []string{"add", "create"},
-			Hint: "[project] <title> [--assign @user|me] [--priority high] [--post]",
-			Help: "Create a task, in the channel's default project unless you name one; the title takes tix quick-add tokens: !high #tag @user due:fri",
-			Autocomplete: func(n *model.AutocompleteData) {
-				n.AddDynamicListArgument("Project (optional; the channel's default is listed first)", f.url(routeProjects), false)
-				n.AddTextArgument("Title, with optional !priority #tag @user due:fri --post", "<title>", "")
+			Hint:   "[project] <title> [--assign @user|me] [--priority high] [--post]",
+			HelpID: "tasks.cmd.new",
+			Autocomplete: func(n *model.AutocompleteData, l *i18n.Localizer) {
+				n.AddDynamicListArgument(l.T("tasks.cmd.new_project"), f.url(routeProjects), false)
+				n.AddTextArgument(l.T("tasks.cmd.new_title"), "<title>", "")
 			},
 			Run: f.cmdNew,
 		},
 		{
 			Name: "search", Aliases: []string{"find"}, Hint: "<text> [project] [filter] [open]",
-			Help: "Full-text search over titles and bodies, finished tasks included unless you add open",
-			Autocomplete: func(n *model.AutocompleteData) {
-				n.AddTextArgument("Text, then optionally a project, filter terms (status:todo tag:ops @user) and open", "<text> [project] [filter] [open]", "")
+			HelpID: "tasks.cmd.search",
+			Autocomplete: func(n *model.AutocompleteData, l *i18n.Localizer) {
+				n.AddTextArgument(l.T("tasks.cmd.search_text"), "<text> [project] [filter] [open]", "")
 			},
 			Run: f.cmdSearch,
 		},
-		{Name: "mine", Hint: "[filter]", Help: "Your open tasks (same as /tix list mine)", Autocomplete: func(n *model.AutocompleteData) {
-			n.AddTextArgument("tix filter terms: status:todo tag:ops priority:high", "[filter]", "")
+		{Name: "mine", Hint: "[filter]", HelpID: "tasks.cmd.mine", Autocomplete: func(n *model.AutocompleteData, l *i18n.Localizer) {
+			n.AddTextArgument(l.T("tasks.cmd.mine_filter"), "[filter]", "")
 		}, Run: f.cmdMine},
-		{Name: "due", Hint: "[project] [filter]", Help: "Your open tasks due today or overdue, soonest first", Autocomplete: func(n *model.AutocompleteData) {
-			n.AddDynamicListArgument("Project (optional)", f.url(routeProjects), false)
+		{Name: "due", Hint: "[project] [filter]", HelpID: "tasks.cmd.due", Autocomplete: func(n *model.AutocompleteData, l *i18n.Localizer) {
+			n.AddDynamicListArgument(l.T("tasks.cmd.due_project"), f.url(routeProjects), false)
 		}, Run: f.cmdDue},
 		{
 			Name: "channel", Hint: "[project <key>|none]",
-			Help: "Show this channel's tix settings; channel admins set its default project for /tix new and the create reaction",
-			Autocomplete: func(n *model.AutocompleteData) {
-				p := model.NewAutocompleteData("project", "<key>|none", "Set or clear this channel's default project (channel admins)")
-				p.AddDynamicListArgument("Project key, or none", f.url(routeProjects)+"?channel=1", true)
+			HelpID: "tasks.cmd.channel",
+			Autocomplete: func(n *model.AutocompleteData, l *i18n.Localizer) {
+				p := model.NewAutocompleteData("project", "<key>|none", l.T("tasks.cmd.channel_project"))
+				p.AddDynamicListArgument(l.T("tasks.cmd.channel_project_key"), f.url(routeProjects)+"?channel=1", true)
 				n.AddCommand(p)
 			},
 			Run: f.cmdChannel,
 		},
-		{Name: "show", Aliases: []string{"view"}, Hint: "<ref>", Help: "Show a task with its latest comments", Autocomplete: refArg, Run: f.cmdShow},
+		{Name: "show", Aliases: []string{"view"}, Hint: "<ref>", HelpID: "tasks.cmd.show", Autocomplete: refArg, Run: f.cmdShow},
 		{
 			Name: "list", Aliases: []string{"ls"}, Hint: "[mine|all|project] [filter]",
-			Help: "List open tasks: yours by default, a project's, or a tix filter such as status:todo tag:ops",
-			Autocomplete: func(n *model.AutocompleteData) {
-				n.AddDynamicListArgument("mine, all or a project", f.url(routeProjects)+"?list=1", false)
-				n.AddTextArgument("tix filter terms: status:todo tag:ops priority:high @user due:week title~api", "[filter]", "")
+			HelpID: "tasks.cmd.list",
+			Autocomplete: func(n *model.AutocompleteData, l *i18n.Localizer) {
+				n.AddDynamicListArgument(l.T("tasks.cmd.list_scope"), f.url(routeProjects)+"?list=1", false)
+				n.AddTextArgument(l.T("tasks.cmd.list_filter"), "[filter]", "")
 			},
 			Run: f.cmdList,
 		},
-		{Name: "start", Hint: "<ref> [comment]", Help: "Move a task to its in-progress state", Autocomplete: withRef("[comment]", "Optional comment"), Run: f.moveCmd(toStart)},
-		{Name: "done", Hint: "<ref> [comment]", Help: "Move a task to its done state", Autocomplete: withRef("[comment]", "Optional comment"), Run: f.moveCmd(toDone)},
-		{Name: "close", Aliases: []string{"cancel"}, Hint: "<ref> [comment]", Help: "Close a task without doing it (cancelled state, else done)", Autocomplete: withRef("[comment]", "Optional comment"), Run: f.moveCmd(toClose)},
-		{Name: "reopen", Hint: "<ref> [comment]", Help: "Move a finished task back to an open state", Autocomplete: withRef("[comment]", "Optional comment"), Run: f.moveCmd(toReopen)},
+		{Name: "start", Hint: "<ref> [comment]", HelpID: "tasks.cmd.start", Autocomplete: withRef("[comment]", i18n.M("tasks.cmd.arg_comment")), Run: f.moveCmd(toStart)},
+		{Name: "done", Hint: "<ref> [comment]", HelpID: "tasks.cmd.done", Autocomplete: withRef("[comment]", i18n.M("tasks.cmd.arg_comment")), Run: f.moveCmd(toDone)},
+		{Name: "close", Aliases: []string{"cancel"}, Hint: "<ref> [comment]", HelpID: "tasks.cmd.close", Autocomplete: withRef("[comment]", i18n.M("tasks.cmd.arg_comment")), Run: f.moveCmd(toClose)},
+		{Name: "reopen", Hint: "<ref> [comment]", HelpID: "tasks.cmd.reopen", Autocomplete: withRef("[comment]", i18n.M("tasks.cmd.arg_comment")), Run: f.moveCmd(toReopen)},
 		{
-			Name: "move", Aliases: []string{"mv"}, Hint: "<ref> <state> [comment]", Help: "Move a task to a state of its workflow",
-			Autocomplete: func(n *model.AutocompleteData) {
-				refArg(n)
-				n.AddDynamicListArgument("Target state", f.url(routeStates), true)
+			Name: "move", Aliases: []string{"mv"}, Hint: "<ref> <state> [comment]", HelpID: "tasks.cmd.move",
+			Autocomplete: func(n *model.AutocompleteData, l *i18n.Localizer) {
+				refArg(n, l)
+				n.AddDynamicListArgument(l.T("tasks.cmd.move_state"), f.url(routeStates), true)
 				n.AddTextArgument("Optional comment", "[comment]", "")
 			},
 			Run: f.cmdMove,
 		},
-		{Name: "comment", Hint: "<ref> <text>", Help: "Comment on a task", Autocomplete: withRef("<text>", "Comment text (Markdown)"), Run: f.cmdComment},
-		{Name: "assign", Hint: "<ref> <@user|me|none>", Help: "Assign a task, or unassign it with none", Autocomplete: withRef("<@user|me|none>", "Who: @user, me, none or a tix handle"), Run: f.cmdAssign},
+		{Name: "comment", Hint: "<ref> <text>", HelpID: "tasks.cmd.comment", Autocomplete: withRef("<text>", i18n.M("tasks.cmd.comment_text")), Run: f.cmdComment},
+		{Name: "assign", Hint: "<ref> <@user|me|none>", HelpID: "tasks.cmd.assign", Autocomplete: withRef("<@user|me|none>", i18n.M("tasks.cmd.assign_who")), Run: f.cmdAssign},
 	}
 }
 

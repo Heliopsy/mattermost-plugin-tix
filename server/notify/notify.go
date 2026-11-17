@@ -14,6 +14,7 @@ import (
 	"github.com/heliopsy/mattermost-plugin-tix/server/api"
 	"github.com/heliopsy/mattermost-plugin-tix/server/app"
 	"github.com/heliopsy/mattermost-plugin-tix/server/command"
+	"github.com/heliopsy/mattermost-plugin-tix/server/i18n"
 	"github.com/heliopsy/mattermost-plugin-tix/server/tix"
 )
 
@@ -51,25 +52,25 @@ func New(a *app.App, cards Refresher) *Feature {
 func (f *Feature) Commands() []command.Sub {
 	return []command.Sub{
 		{
-			Name: "webhook", Hint: "setup|status|remove", Help: "Register, check or remove the webhook tix sends events to", AdminOnly: true,
-			Autocomplete: func(n *model.AutocompleteData) {
-				n.AddCommand(model.NewAutocompleteData("setup", "", "Register or update the plugin's webhook in tix"))
-				n.AddCommand(model.NewAutocompleteData("status", "", "Show the webhook and its recent deliveries"))
-				n.AddCommand(model.NewAutocompleteData("remove", "", "Remove the plugin's webhook from tix"))
+			Name: "webhook", Hint: "setup|status|remove", HelpID: "notify.cmd.webhook", AdminOnly: true,
+			Autocomplete: func(n *model.AutocompleteData, l *i18n.Localizer) {
+				n.AddCommand(model.NewAutocompleteData("setup", "", l.T("notify.cmd.webhook_setup")))
+				n.AddCommand(model.NewAutocompleteData("status", "", l.T("notify.cmd.webhook_status")))
+				n.AddCommand(model.NewAutocompleteData("remove", "", l.T("notify.cmd.webhook_remove")))
 			},
 			Run: f.webhookCmd,
 		},
 		{
 			Name: "subscribe", Hint: "<project|all> [created transitioned assigned commented done deleted] [--detail compact|detailed|card] [--comments full|excerpt|none] [--people names|mentions]",
-			Help: "Post a project's tix activity in this channel", Run: f.subscribe,
+			HelpID: "notify.cmd.subscribe", Run: f.subscribe,
 		},
-		{Name: "unsubscribe", Hint: "<project|all>", Help: "Stop posting a project's tix activity in this channel", Run: f.unsubscribe},
-		{Name: "subscriptions", Hint: "[all]", Help: "List the tix feeds of this channel", Run: f.subscriptions},
+		{Name: "unsubscribe", Hint: "<project|all>", HelpID: "notify.cmd.unsubscribe", Run: f.unsubscribe},
+		{Name: "subscriptions", Hint: "[all]", HelpID: "notify.cmd.subscriptions", Run: f.subscriptions},
 		{
-			Name: "notifications", Hint: "on|off", Help: "Turn your personal tix DMs on or off",
-			Autocomplete: func(n *model.AutocompleteData) {
-				n.AddCommand(model.NewAutocompleteData("on", "", "Get DMs about your tasks"))
-				n.AddCommand(model.NewAutocompleteData("off", "", "Stop DMs about your tasks"))
+			Name: "notifications", Hint: "on|off", HelpID: "notify.cmd.notifications",
+			Autocomplete: func(n *model.AutocompleteData, l *i18n.Localizer) {
+				n.AddCommand(model.NewAutocompleteData("on", "", l.T("notify.cmd.notifications_on")))
+				n.AddCommand(model.NewAutocompleteData("off", "", l.T("notify.cmd.notifications_off")))
 			},
 			Run: f.notifications,
 		},
