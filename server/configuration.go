@@ -3,6 +3,7 @@
 package main
 
 import (
+	"encoding/json"
 	"reflect"
 
 	"github.com/pkg/errors"
@@ -25,6 +26,9 @@ type configuration struct {
 	EncryptionKey string
 	WebhookSecret string
 	UnfurlRefs    bool
+	CardStyle     string
+	// CardQuietMinutes is a number setting; the System Console may store it as a string.
+	CardQuietMinutes json.Number
 }
 
 // Clone shallow copies the configuration. Your implementation may require a deep copy if

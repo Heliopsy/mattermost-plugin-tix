@@ -37,6 +37,11 @@ type Config struct {
 	WebhookSecret string
 	// UnfurlRefs turns task references in messages into task cards.
 	UnfurlRefs bool
+	// CardStyle is "reply" (the bot answers in the thread, the default) or "inline" (the card is
+	// attached to the person's own post).
+	CardStyle string
+	// CardQuietMinutes: a task carded in a channel gets no new card there for this long (0 = default 10).
+	CardQuietMinutes int
 }
 
 // ErrNotLinked is returned when the acting user has not run /tix connect.
