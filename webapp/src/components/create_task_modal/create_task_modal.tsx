@@ -90,7 +90,7 @@ export function CreateTaskModal({prefill, onClose, onShowSidebar}: Props) {
     const load = async () => {
         setLoadError('');
         try {
-            const m = await getMe();
+            const m = await getMe(prefill.channelId);
             setMe(m);
             if (!m.linked) {
                 setNotLinked(true);
@@ -99,7 +99,10 @@ export function CreateTaskModal({prefill, onClose, onShowSidebar}: Props) {
             setNotLinked(false);
             const ps = await getProjects();
             setProjects(ps);
-            setProject((cur) => (ps.some((p) => p.key === cur) ? cur : ps[0]?.key ?? ''));
+            const visible = (key?: string) => ps.find((p) => key && p.key.toLowerCase() === key.toLowerCase())?.key;
+
+            // The channel's default project comes first, then the last one used here, then the first.
+            setProject((cur) => visible(m.default_project) ?? visible(cur) ?? ps[0]?.key ?? '');
         } catch (e) {
             if (isNotLinked(e)) {
                 setNotLinked(true);

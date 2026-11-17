@@ -55,7 +55,8 @@ export async function doFetch<T>(path: string, options: Options = {}): Promise<T
 const send = <T>(method: string, path: string, body?: unknown) => doFetch<T>(path, {method, body: body === undefined ? undefined : JSON.stringify(body)});
 const taskPath = (ref: string) => `/tasks/${encodeURIComponent(ref)}`;
 
-export const getMe = () => doFetch<Me>('/me');
+// getMe reads the connection; with a channel it also carries that channel's default project.
+export const getMe = (channelId?: string) => doFetch<Me>(channelId ? `/me?channel_id=${encodeURIComponent(channelId)}` : '/me');
 export const connect = () => send<{message: string}>('POST', '/connect');
 export const getProjects = () => doFetch<Project[]>('/projects');
 

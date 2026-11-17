@@ -65,6 +65,26 @@ describe('CreateTaskModal', () => {
         expect(await screen.findByText('Posted the link.')).toBeVisible();
     });
 
+    test('preselects the channel default project', async () => {
+        mocked.getMe.mockResolvedValue({linked: true, tix_url: 'https://tix.example.com', can_connect: true, default_project: 'ops'});
+        mocked.getProjects.mockResolvedValue([
+            {id: 'p1', key: 'infra', name: 'Infra', color: '', workflow_id: 'wf1'},
+            {id: 'p2', key: 'OPS', name: 'Operations', color: '', workflow_id: 'wf1'},
+        ]);
+        mocked.createTask.mockResolvedValue({ref: 'OPS-1', title: 'Restart', web_url: ''} as never);
+        renderWithStore(
+            <CreateTaskModal
+                prefill={{channelId: CHANNEL, title: 'Restart'}}
+                onClose={jest.fn()}
+                onShowSidebar={jest.fn()}
+            />,
+        );
+        await screen.findByRole('textbox', {name: 'Title'});
+        expect(mocked.getMe).toHaveBeenCalledWith(CHANNEL);
+        await userEvent.click(screen.getByRole('button', {name: 'Create task'}));
+        await waitFor(() => expect(mocked.createTask).toHaveBeenCalledWith(expect.objectContaining({project: 'OPS'})));
+    });
+
     test('asks for a title before creating', async () => {
         renderWithStore(
             <CreateTaskModal

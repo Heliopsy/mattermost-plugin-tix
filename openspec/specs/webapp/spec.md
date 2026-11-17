@@ -75,6 +75,17 @@ The post menu SHALL offer "Create tix task", which opens a modal with the post's
 - **WHEN** the user creates the task
 - **THEN** the modal shows the new reference linked to tix and offers "Post link in thread", which posts a reply as the user containing the reference so task cards can unfurl it
 
+### Requirement: Channel default project in the modal
+The modal SHALL ask `GET /api/v1/me?channel_id=<channel>` for the channel's default project and preselect it when the user can see that project, falling back to the project last used in the modal and then the first one. The plugin SHALL report `default_project` only to a user who can read that channel.
+
+#### Scenario: Channel with a default
+- **WHEN** the channel's default project is ops and the user opens the modal in it
+- **THEN** the project picker starts on ops
+
+#### Scenario: Not a member
+- **WHEN** a user asks `/me` with the id of a channel they cannot read
+- **THEN** the answer has no `default_project`
+
 ### Requirement: Global create
 The main menu and the sidebar SHALL offer creating a task without a post, using the same modal, which then offers posting the link in the current channel.
 
