@@ -209,7 +209,7 @@ func TestBuildCardSettings(t *testing.T) {
 			[]string{"Статус", "Възложена на", "Приоритет", "Срок", "Етикети"},
 			[]string{"In progress", "@alice", "Висок", "19.11.2026", "auth"},
 			"tix · Infrastructure",
-			[]string{"Done", "Review", "Stuck", "Възложи на мен", "Коментар"},
+			[]string{"Done", "Review", "Stuck", "Възложи на мен", "Коментирай"},
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
