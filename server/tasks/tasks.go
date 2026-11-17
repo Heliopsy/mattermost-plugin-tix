@@ -51,12 +51,13 @@ func (f *Feature) appEnv(userID string) (*env, error) {
 		return nil, err
 	}
 	loc := f.a.Location(userID)
+	lang := f.a.Locale(userID)
 	return &env{
 		tc:        tc,
 		actorID:   l.ActorID,
 		projects:  func() ([]tix.Project, error) { return f.a.Projects(userID) },
 		workflows: func() ([]tix.Workflow, error) { return f.a.Workflows(userID) },
-		mention:   func(actorID string) string { return f.a.MentionFor(app.EN, userID, actorID) },
+		mention:   func(actorID string) string { return f.a.MentionFor(lang, userID, actorID) },
 		taskURL:   f.a.TaskURL,
 		mmActor: func(username string) (string, bool, error) {
 			u, appErr := f.a.API.GetUserByUsername(strings.ToLower(username))
@@ -73,7 +74,7 @@ func (f *Feature) appEnv(userID string) (*env, error) {
 		},
 		now:    func() time.Time { return time.Now().In(loc) },
 		format: f.a.Config().Format,
-		lang:   f.a.Locale(userID),
+		lang:   lang,
 	}, nil
 }
 
@@ -146,7 +147,7 @@ func (f *Feature) Commands() []command.Sub {
 			Autocomplete: func(n *model.AutocompleteData, l *i18n.Localizer) {
 				refArg(n, l)
 				n.AddDynamicListArgument(l.T("tasks.cmd.move_state"), f.url(routeStates), true)
-				n.AddTextArgument("Optional comment", "[comment]", "")
+				n.AddTextArgument(l.T("tasks.cmd.arg_comment"), "[comment]", "")
 			},
 			Run: f.cmdMove,
 		},
@@ -166,30 +167,31 @@ func (f *Feature) Routes(h *api.Handler) {
 func (f *Feature) withEnv(c *command.Ctx, fn func(e *env) (string, error)) *model.CommandResponse {
 	e, err := f.envFor(c.Args.UserId)
 	if err != nil {
-		return command.Ephemeral(app.ErrText(app.EN, err))
+		return command.Ephemeral(app.ErrText(c.L(), err))
 	}
 	msg, err := fn(e)
 	if err != nil {
-		return command.Ephemeral(app.ErrText(app.EN, err))
+		return command.Ephemeral(app.ErrText(c.L(), err))
 	}
 	return command.Ephemeral(msg)
 }
 
 func needRef(args []string, usage string) (string, error) {
 	if len(args) == 0 || normRef(args[0]) == "" {
-		return "", errors.New("usage: `" + usage + "`")
+		return "", i18n.NewError("tasks.err.usage", "command", usage)
 	}
 	return normRef(args[0]), nil
 }
 
 func (f *Feature) cmdNew(c *command.Ctx, args []string) *model.CommandResponse {
+	l := c.L()
 	e, err := f.envFor(c.Args.UserId)
 	if err != nil {
-		return command.Ephemeral(app.ErrText(app.EN, err))
+		return command.Ephemeral(app.ErrText(l, err))
 	}
 	na, err := parseNew(args, e.isProject)
 	if err != nil {
-		return command.Ephemeral(err.Error())
+		return command.Ephemeral(app.ErrText(l, err))
 	}
 	if na.Project == "" {
 		na.Project = f.ChannelProject(c.Args.UserId, c.Args.ChannelId)
@@ -198,24 +200,26 @@ func (f *Feature) cmdNew(c *command.Ctx, args []string) *model.CommandResponse {
 	defer cancel()
 	t, err := e.create(cx, na)
 	if err != nil {
-		return command.Ephemeral(app.ErrText(app.EN, err))
+		return command.Ephemeral(app.ErrText(l, err))
 	}
 	wf, _, _ := e.workflowFor(t.ProjectID)
 	if na.Post {
-		who := "Someone"
+		// The channel reads the post: the server's language.
+		sl := f.a.ServerLocale()
+		who := sl.T("tasks.someone")
 		if u, appErr := f.a.API.GetUser(c.Args.UserId); appErr == nil {
 			who = "@" + u.Username
 		}
 		post := &model.Post{
 			UserId: f.a.BotID, ChannelId: c.Args.ChannelId, RootId: c.Args.RootId,
-			Message: e.card(t, wf, who+" created "),
+			Message: e.cardIn(sl, t, wf, i18n.M("tasks.new.posted"), "who", who),
 		}
 		if _, appErr := f.a.API.CreatePost(post); appErr == nil {
 			return &model.CommandResponse{}
 		}
-		return command.Ephemeral(e.card(t, wf, "Created ") + "\n\n(Posting it to the channel failed.)")
+		return command.Ephemeral(e.card(t, wf, i18n.M("tasks.new.created")) + "\n\n" + l.T("tasks.new.post_failed"))
 	}
-	return command.Ephemeral(e.card(t, wf, "Created "))
+	return command.Ephemeral(e.card(t, wf, i18n.M("tasks.new.created")))
 }
 
 func (f *Feature) cmdShow(c *command.Ctx, args []string) *model.CommandResponse {
@@ -250,7 +254,7 @@ func (f *Feature) cmdSearch(c *command.Ctx, args []string) *model.CommandRespons
 		}
 		cx, cancel := ctx()
 		defer cancel()
-		return e.flat(cx, q, "No tasks match.")
+		return e.flat(cx, q, i18n.M("tasks.list.none"))
 	})
 }
 
@@ -266,7 +270,7 @@ func (f *Feature) cmdDue(c *command.Ctx, args []string) *model.CommandResponse {
 		}
 		cx, cancel := ctx()
 		defer cancel()
-		return e.flat(cx, q, "Nothing of yours is due today or overdue.")
+		return e.flat(cx, q, i18n.M("tasks.due.none"))
 	})
 }
 
@@ -287,7 +291,7 @@ func (f *Feature) moveCmd(in intent) func(*command.Ctx, []string) *model.Command
 func (f *Feature) cmdMove(c *command.Ctx, args []string) *model.CommandResponse {
 	return f.withEnv(c, func(e *env) (string, error) {
 		if len(args) < 2 {
-			return "", errors.New("usage: `/tix move <ref> <state> [comment]`")
+			return "", i18n.NewError("tasks.err.usage", "command", "/tix move <ref> <state> [comment]")
 		}
 		cx, cancel := ctx()
 		defer cancel()
@@ -310,7 +314,7 @@ func (f *Feature) cmdComment(c *command.Ctx, args []string) *model.CommandRespon
 func (f *Feature) cmdAssign(c *command.Ctx, args []string) *model.CommandResponse {
 	return f.withEnv(c, func(e *env) (string, error) {
 		if len(args) < 2 {
-			return "", errors.New("usage: `/tix assign <ref> <@user|me|none>`")
+			return "", i18n.NewError("tasks.err.usage", "command", "/tix assign <ref> <@user|me|none>")
 		}
 		cx, cancel := ctx()
 		defer cancel()

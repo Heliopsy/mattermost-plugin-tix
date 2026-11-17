@@ -3,13 +3,12 @@
 package tasks
 
 import (
-	"errors"
-	"fmt"
 	"net/url"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/heliopsy/mattermost-plugin-tix/server/i18n"
 	"github.com/heliopsy/mattermost-plugin-tix/server/render"
 	"github.com/heliopsy/mattermost-plugin-tix/server/tix"
 )
@@ -31,7 +30,7 @@ func parsePriority(s string) (int, error) {
 	if n, err := strconv.Atoi(strings.TrimPrefix(s, "p")); err == nil && n >= 1 && n <= 5 {
 		return n, nil
 	}
-	return 0, fmt.Errorf("unknown priority `%s`: use highest, high, normal, low, lowest or 1 to 5", s)
+	return 0, i18n.NewError("tasks.err.priority", "priority", s)
 }
 
 // priorityName renders a priority, empty when unset.
@@ -110,7 +109,7 @@ func parseNew(args []string, isProject func(string) bool) (*newArgs, error) {
 				return val, nil
 			}
 			if i+1 >= len(args) {
-				return "", fmt.Errorf("`%s` needs a value", name)
+				return "", i18n.NewError("tasks.err.needs_value", "option", name)
 			}
 			i++
 			return args[i], nil
@@ -142,7 +141,7 @@ func parseNew(args []string, isProject func(string) bool) (*newArgs, error) {
 			out.Raw = true
 		default:
 			if strings.HasPrefix(a, "--") {
-				return nil, fmt.Errorf("unknown option `%s`", a)
+				return nil, i18n.NewError("tasks.err.unknown_option", "option", a)
 			}
 			words = append(words, a)
 		}
@@ -152,7 +151,7 @@ func parseNew(args []string, isProject func(string) bool) (*newArgs, error) {
 	}
 	out.Title = strings.TrimSpace(strings.Join(words, " "))
 	if out.Title == "" {
-		return nil, errors.New("give the task a title: `/tix new [project] <title>`")
+		return nil, i18n.NewError("tasks.err.no_title")
 	}
 	return out, nil
 }
@@ -164,11 +163,27 @@ type listQuery struct {
 	Open bool
 	// Mine is set when the listing is the caller's own tasks.
 	Mine bool
-	// Title describes the listing for the reply.
-	Title string
+	// titleID and titleArgs describe the listing for the reply, desc the qualifiers in
+	// parentheses after it (message ids); Title renders them.
+	titleID   string
+	titleArgs []any
+	desc      []string
 	// Due narrows the listing by calendar day in the caller's time zone, which a due_before or
 	// due_after bound alone cannot do for bare due dates (stored as midnight UTC).
 	Due dueWindow
+}
+
+// Title is the listing's heading in l's language.
+func (q *listQuery) Title(l *i18n.Localizer) string {
+	t := l.T(q.titleID, q.titleArgs...)
+	if len(q.desc) == 0 {
+		return t
+	}
+	parts := make([]string, 0, len(q.desc))
+	for _, d := range q.desc {
+		parts = append(parts, l.T(d))
+	}
+	return l.T("tasks.list.title_desc", "title", t, "desc", strings.Join(parts, ", "))
 }
 
 // dueWindow is a calendar filter on due dates.
@@ -206,7 +221,6 @@ func (q *listQuery) keepDue(t *tix.Task, now time.Time) bool {
 // @mention into something tix's assignee filter takes.
 func parseList(args []string, isProject func(string) bool, resolve func(string) (string, error), now time.Time) (*listQuery, error) {
 	q := &listQuery{Params: url.Values{}, Open: true}
-	var desc []string
 	project := ""
 	var free []string
 	filtered := false
@@ -219,7 +233,7 @@ func parseList(args []string, isProject func(string) bool, resolve func(string) 
 			continue
 		case low == "all":
 			q.Open = false
-			desc = append(desc, "including finished")
+			q.desc = append(q.desc, i18n.M("tasks.list.desc_finished"))
 			continue
 		case i == 0 && !strings.ContainsAny(a, ":~@-") && isProject(a):
 			project = a
@@ -238,25 +252,20 @@ func parseList(args []string, isProject func(string) bool, resolve func(string) 
 		q.Params.Add("assignee", "me")
 		q.Mine = true
 	}
-	switch {
-	case q.Mine && project != "":
-		q.Title = "My open tasks in " + strings.ToUpper(project)
-	case q.Mine:
-		q.Title = "My open tasks"
-	case project != "":
-		q.Title = "Open tasks in " + strings.ToUpper(project)
-	default:
-		q.Title = "Open tasks"
+	titles := map[[3]bool]string{
+		{true, true, true}:    i18n.M("tasks.list.title_mine_open_project"),
+		{true, true, false}:   i18n.M("tasks.list.title_mine_open"),
+		{true, false, true}:   i18n.M("tasks.list.title_mine_project"),
+		{true, false, false}:  i18n.M("tasks.list.title_mine"),
+		{false, true, true}:   i18n.M("tasks.list.title_open_project"),
+		{false, true, false}:  i18n.M("tasks.list.title_open"),
+		{false, false, true}:  i18n.M("tasks.list.title_project"),
+		{false, false, false}: i18n.M("tasks.list.title_all"),
 	}
-	if !q.Open {
-		q.Title = strings.Replace(q.Title, "open tasks", "tasks", 1)
-		q.Title = strings.Replace(q.Title, "Open tasks", "Tasks", 1)
-	}
+	q.titleID = titles[[3]bool{q.Mine, q.Open, project != ""}]
+	q.titleArgs = []any{"project", strings.ToUpper(project)}
 	if filtered {
-		desc = append(desc, "filtered")
-	}
-	if len(desc) > 0 {
-		q.Title += " (" + strings.Join(desc, ", ") + ")"
+		q.desc = append(q.desc, i18n.M("tasks.list.desc_filtered"))
 	}
 	return q, nil
 }
@@ -297,15 +306,15 @@ func addTerm(q *listQuery, term string, resolve func(string) (string, error), no
 	}
 	key, op, val := strings.ToLower(body[:sep]), body[sep], body[sep+1:]
 	if val == "" {
-		return fmt.Errorf("filter term `%s` has no value", term)
+		return i18n.NewError("tasks.err.term_no_value", "term", term)
 	}
 	weak := op == '~'
 	if weak && key != "title" && key != "body" && key != "text" {
-		return fmt.Errorf("`~` works only with title, body and text, not `%s`", term)
+		return i18n.NewError("tasks.err.term_weak", "term", term)
 	}
 	noNeg := func() error {
 		if neg {
-			return fmt.Errorf("`%s` cannot be negated", term)
+			return i18n.NewError("tasks.err.term_no_negation", "term", term)
 		}
 		return nil
 	}
@@ -382,11 +391,11 @@ func addTerm(q *listQuery, term string, resolve func(string) (string, error), no
 		}
 		n, err := strconv.Atoi(val)
 		if err != nil || n < 1 {
-			return fmt.Errorf("`%s`: limit takes a positive number", term)
+			return i18n.NewError("tasks.err.term_limit", "term", term)
 		}
 		p.Set("limit", strconv.Itoa(min(n, maxList)))
 	default:
-		return fmt.Errorf("unknown filter term `%s`; see the tix filter language (project:, status:, tag:, assignee:, priority:, title~, due:, is:)", term)
+		return i18n.NewError("tasks.err.term_unknown", "term", term)
 	}
 	return nil
 }
@@ -410,14 +419,14 @@ func addIs(p url.Values, val string, neg bool, term string) error {
 	}
 	if val == "root" {
 		if neg {
-			return fmt.Errorf("`%s` cannot be negated", term)
+			return i18n.NewError("tasks.err.term_no_negation", "term", term)
 		}
 		p.Set("root_only", "true")
 		return nil
 	}
 	f, ok := flag[val]
 	if !ok {
-		return fmt.Errorf("unknown filter term `%s`", term)
+		return i18n.NewError("tasks.err.term_unknown_is", "term", term)
 	}
 	p.Set(f.param, strconv.FormatBool(f.value != neg))
 	return nil
@@ -454,7 +463,7 @@ func addDue(q *listQuery, val string, now time.Time) error {
 			p.Set("due_after", t.Format(time.RFC3339))
 		}
 	default:
-		return fmt.Errorf("unknown due window `%s`: use overdue, today, week, month, <DATE or >DATE", val)
+		return i18n.NewError("tasks.err.due_window", "value", val)
 	}
 	return nil
 }
@@ -466,5 +475,5 @@ func parseDate(s string) (time.Time, error) {
 			return t, nil
 		}
 	}
-	return time.Time{}, fmt.Errorf("`%s` is not a date: use YYYY-MM-DD", s)
+	return time.Time{}, i18n.NewError("tasks.err.not_a_date", "value", s)
 }

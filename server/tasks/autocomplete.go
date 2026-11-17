@@ -29,6 +29,7 @@ func (f *Feature) autocomplete(w http.ResponseWriter, r *http.Request, items fun
 		return
 	}
 	out := []model.AutocompleteListItem{}
+	// The env speaks the requesting user's language (appEnv sets it).
 	if e, err := f.envFor(userID); err == nil {
 		cx, cancel := ctx()
 		defer cancel()
@@ -78,7 +79,7 @@ func (f *Feature) autocompleteProjects(w http.ResponseWriter, r *http.Request) {
 	f.autocomplete(w, r, func(_ context.Context, e *env) []model.AutocompleteListItem {
 		out := e.projectItems(forList, def)
 		if forChannel {
-			out = append(out, model.AutocompleteListItem{Item: "none", HelpText: "Clear the channel's default project"})
+			out = append(out, model.AutocompleteListItem{Item: "none", HelpText: e.l().T("tasks.ac.none")})
 		}
 		return out
 	})
@@ -89,8 +90,8 @@ func (e *env) projectItems(forList bool, def string) []model.AutocompleteListIte
 	var out []model.AutocompleteListItem
 	if forList {
 		out = append(out,
-			model.AutocompleteListItem{Item: "mine", HelpText: "Open tasks assigned to you"},
-			model.AutocompleteListItem{Item: "all", HelpText: "Include finished tasks"},
+			model.AutocompleteListItem{Item: "mine", HelpText: e.l().T("tasks.ac.mine")},
+			model.AutocompleteListItem{Item: "all", HelpText: e.l().T("tasks.ac.all")},
 		)
 	}
 	ps, err := e.projects()
@@ -103,7 +104,7 @@ func (e *env) projectItems(forList bool, def string) []model.AutocompleteListIte
 			continue
 		}
 		if def != "" && strings.EqualFold(p.Key, def) {
-			out = append(out, model.AutocompleteListItem{Item: p.Key, HelpText: p.Name + " (this channel's default)"})
+			out = append(out, model.AutocompleteListItem{Item: p.Key, HelpText: e.l().T("tasks.ac.default_project", "name", p.Name)})
 			continue
 		}
 		rest = append(rest, model.AutocompleteListItem{Item: p.Key, HelpText: p.Name})
@@ -156,7 +157,7 @@ func (e *env) stateItems(cx context.Context, ref string) []model.AutocompleteLis
 		}
 		help := labelOf(s)
 		if tr.RequiresComment {
-			help += " (needs a comment)"
+			help = e.l().T("tasks.ac.needs_comment", "state", help)
 		}
 		out = append(out, model.AutocompleteListItem{Item: s.Key, HelpText: help})
 	}

@@ -157,7 +157,7 @@ func TestParseList(t *testing.T) {
 			assert.Equal(t, tc.want, got.Params)
 			assert.Equal(t, tc.open, got.Open, "open")
 			assert.Equal(t, tc.mine, got.Mine, "mine")
-			assert.Equal(t, tc.title, got.Title)
+			assert.Equal(t, tc.title, got.Title(enL))
 		})
 	}
 }

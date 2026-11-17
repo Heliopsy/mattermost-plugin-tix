@@ -4,8 +4,6 @@ package tasks
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"strings"
 	"time"
 
@@ -35,6 +33,14 @@ type env struct {
 	format render.Options
 	// lang is the user's language; nil is English.
 	lang *i18n.Localizer
+}
+
+// l is the user's language.
+func (e *env) l() *i18n.Localizer {
+	if e.lang == nil {
+		return i18n.For(i18n.Fallback)
+	}
+	return e.lang
 }
 
 // r renders for the user at the current time.
@@ -71,7 +77,7 @@ func (e *env) workflowFor(projectID string) (*tix.Workflow, *tix.Project, error)
 		}
 	}
 	if proj == nil {
-		return nil, nil, fmt.Errorf("project %s not found", projectID)
+		return nil, nil, i18n.NewError("tasks.err.project_not_found", "project", projectID)
 	}
 	ws, err := e.workflows()
 	if err != nil {
@@ -82,11 +88,11 @@ func (e *env) workflowFor(projectID string) (*tix.Workflow, *tix.Project, error)
 			return &ws[i], proj, nil
 		}
 	}
-	return nil, proj, fmt.Errorf("the workflow of project %s is not visible to you", proj.Key)
+	return nil, proj, i18n.NewError("tasks.err.workflow_hidden", "project", proj.Key)
 }
 
 // errUnlinkedUser is returned when an @mention names a Mattermost user without a tix link.
-var errUnlinkedUser = errors.New("has not connected tix")
+var errUnlinkedUser = i18n.NewError("tasks.err.unlinked")
 
 // actorFor turns what a person typed for an assignee into what tix takes: me is the caller,
 // none (or nobody) is nobody, @user is the tix account linked to that Mattermost user, and
@@ -94,7 +100,7 @@ var errUnlinkedUser = errors.New("has not connected tix")
 func (e *env) actorFor(who string) (string, error) {
 	switch strings.ToLower(strings.TrimSpace(who)) {
 	case "":
-		return "", errors.New("say who: @user, me or none")
+		return "", i18n.NewError("tasks.err.say_who")
 	case "me", "@me":
 		return e.actorID, nil
 	case "none", "nobody", "-":
@@ -103,7 +109,7 @@ func (e *env) actorFor(who string) (string, error) {
 	if name, ok := strings.CutPrefix(who, "@"); ok {
 		id, found, err := e.mmActor(name)
 		if err != nil {
-			return "", fmt.Errorf("@%s %w; they can run `/tix connect`, or name their tix handle without the @", name, errUnlinkedUser)
+			return "", i18n.Wrap(errUnlinkedUser, "tasks.err.unlinked_assignee", "name", name)
 		}
 		if found {
 			return id, nil

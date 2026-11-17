@@ -22,6 +22,7 @@ import (
 
 	"github.com/heliopsy/mattermost-plugin-tix/server/app"
 	"github.com/heliopsy/mattermost-plugin-tix/server/command"
+	"github.com/heliopsy/mattermost-plugin-tix/server/i18n"
 	"github.com/heliopsy/mattermost-plugin-tix/server/render"
 	"github.com/heliopsy/mattermost-plugin-tix/server/store"
 	"github.com/heliopsy/mattermost-plugin-tix/server/tix"
@@ -285,9 +286,9 @@ func TestReactionCustomEmoji(t *testing.T) {
 
 func TestReactTitle(t *testing.T) {
 	long := strings.Repeat("ä", 200)
-	assert.Equal(t, "Message from @x", reactTitle(" \n\n", "@x"))
-	assert.Equal(t, "Deploy now", reactTitle("> Deploy   now\nmore", "@x"))
-	got := reactTitle(long, "@x")
+	assert.Equal(t, "Message from @x", reactTitle(enL, " \n\n", "@x"))
+	assert.Equal(t, "Deploy now", reactTitle(enL, "> Deploy   now\nmore", "@x"))
+	got := reactTitle(enL, long, "@x")
 	assert.Len(t, []rune(got), maxReactTitle)
 	assert.True(t, strings.HasSuffix(got, "…"))
 }
@@ -427,8 +428,8 @@ func TestDueInTimeZone(t *testing.T) {
 	assert.NotContains(t, got, "INFRA-3")
 
 	created := ft.listed[0]
-	assert.Contains(t, e.card(&created, nil, "Created "), "**Due:** 17.11.2026", "the reported bug")
-	assert.NotContains(t, e.card(&created, nil, "Created "), "overdue")
+	assert.Contains(t, e.card(&created, nil, "tasks.new.created"), "**Due:** 17.11.2026", "the reported bug")
+	assert.NotContains(t, e.card(&created, nil, "tasks.new.created"), "overdue")
 
 	// The date format setting reaches task commands.
 	for format, want := range map[string]string{render.DateISO: "**Due:** 2026-11-17", render.DateRelative: "**Due:** today", render.DateEU: "**Due:** 17.11.2026"} {
@@ -439,4 +440,39 @@ func TestDueInTimeZone(t *testing.T) {
 	e.format.DateFormat = render.DateRelative
 	yesterday := ft.listed[1]
 	assert.Contains(t, e.line(&yesterday, false), "**overdue** yesterday")
+}
+
+// TestBulgarian renders a few replies for a person whose Mattermost speaks Bulgarian.
+func TestBulgarian(t *testing.T) {
+	bg := i18n.For("bg")
+	e, ft := newTestEnv(t)
+	e.lang = bg
+	e.mention = func(id string) string {
+		if id == "" {
+			return bg.T("app.nobody")
+		}
+		return "@" + strings.ToLower(strings.TrimPrefix(id, "A_"))
+	}
+	ft.comments["INFRA-1"] = []tix.Comment{{AuthorActorID: "A_BOB", Body: "готово", CreatedAt: testNow.Add(-3 * 24 * time.Hour)}}
+	got, err := e.show(t.Context(), "infra-1")
+	require.NoError(t, err)
+	assert.Contains(t, got, "**Статус:** To do", "state labels stay as tix sends them")
+	assert.Contains(t, got, "**Възложена на:** @me")
+	assert.Contains(t, got, "**Приоритет:** висок")
+	assert.Contains(t, got, "**Коментари**\n- @bob, преди 3 дни: готово")
+
+	q, err := parseList([]string{"infra", "all"}, e.isProject, e.filterActor, testNow)
+	require.NoError(t, err)
+	assert.Equal(t, "Задачи в INFRA (вкл. приключените)", q.Title(bg))
+	assert.Equal(t, "Tasks in INFRA (including finished)", q.Title(enL))
+
+	_, err = needRef(nil, "/tix show <ref>")
+	assert.Equal(t, "употреба: `/tix show <ref>`", app.ErrText(bg, err))
+	_, err = parseNew([]string{"--priority", "urgent", "x"}, e.isProject)
+	assert.Equal(t, "непознат приоритет `urgent`: използвай highest, high, normal, low, lowest или от 1 до 5", app.ErrText(bg, err))
+
+	assert.Equal(t, "току-що", ago(bg, time.Second))
+	assert.Equal(t, "преди 1 ч", ago(bg, time.Hour))
+	assert.Equal(t, "преди 2 дни", ago(bg, 49*time.Hour))
+	assert.Equal(t, "2 days ago", ago(enL, 49*time.Hour))
 }

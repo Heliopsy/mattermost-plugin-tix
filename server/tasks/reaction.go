@@ -14,6 +14,7 @@ import (
 	"github.com/mattermost/mattermost/server/public/pluginapi"
 
 	"github.com/heliopsy/mattermost-plugin-tix/server/app"
+	"github.com/heliopsy/mattermost-plugin-tix/server/i18n"
 	"github.com/heliopsy/mattermost-plugin-tix/server/tix"
 )
 
@@ -86,10 +87,11 @@ func (f *Feature) ReactionHasBeenAdded(_ *plugin.Context, r *model.Reaction) {
 // createFromPost does the work of the reaction and returns what to tell the reacting person,
 // or "" when the bot's thread reply says it all.
 func (f *Feature) createFromPost(userID, emoji string, post *model.Post, root string) string {
+	l := f.a.Locale(userID)
 	key := reactKey(post.Id, emoji)
 	var raw []byte
 	if err := f.a.Store.Get(storeFeature, key, &raw); err != nil {
-		return "Could not check whether this message already has a task. Try again."
+		return l.T("tasks.react.check_failed")
 	}
 	var existing reactRecord
 	if len(raw) > 0 {
@@ -97,20 +99,20 @@ func (f *Feature) createFromPost(userID, emoji string, post *model.Post, root st
 	}
 	switch {
 	case existing.Ref != "":
-		return fmt.Sprintf("This message is already tracked as [%s](%s).", existing.Ref, existing.URL)
+		return l.T("tasks.react.tracked", "task", fmt.Sprintf("[%s](%s)", existing.Ref, existing.URL))
 	case existing.Pending && time.Since(existing.At) < pendingTTL:
-		return "A task is being created from this message already."
+		return l.T("tasks.react.pending")
 	}
 
 	e, err := f.envFor(userID)
 	if errors.Is(err, app.ErrNotLinked) {
-		return fmt.Sprintf("Connect your tix account with `/tix connect` to create tasks with %s. Your reaction stays as it is.", f.emojiText())
+		return l.T("tasks.react.not_linked", "emoji", f.emojiText())
 	} else if err != nil {
-		return app.ErrText(app.EN, err)
+		return app.ErrText(l, err)
 	}
 	project := f.ChannelProject(userID, post.ChannelId)
 	if project == "" {
-		return fmt.Sprintf("This channel has no default tix project, so %s cannot create a task here. A channel admin can set one with `/tix channel project <key>`, or use **Create tix task** from the message's menu.", f.emojiText())
+		return l.T("tasks.react.no_project", "emoji", f.emojiText())
 	}
 
 	// Claim the message so two reactions at once make one task.
@@ -121,17 +123,19 @@ func (f *Feature) createFromPost(userID, emoji string, post *model.Post, root st
 	claim := reactRecord{Pending: true, At: time.Now().UTC()}
 	ok, err := f.a.Store.Set(storeFeature, key, claim, pluginapi.SetAtomic(claimOld))
 	if err != nil {
-		return "Could not create the task. Try again."
+		return l.T("tasks.react.create_failed")
 	}
 	if !ok {
 		var now reactRecord
 		if f.a.Store.Get(storeFeature, key, &now) == nil && now.Ref != "" {
-			return fmt.Sprintf("This message is already tracked as [%s](%s).", now.Ref, now.URL)
+			return l.T("tasks.react.tracked", "task", fmt.Sprintf("[%s](%s)", now.Ref, now.URL))
 		}
-		return "A task is being created from this message already."
+		return l.T("tasks.react.pending")
 	}
 
-	author := "someone"
+	// The task's text is read in tix by whoever opens it: the server's language.
+	sl := f.a.ServerLocale()
+	author := sl.T("tasks.react.someone")
 	if u, appErr := f.a.API.GetUser(post.UserId); appErr == nil && u != nil {
 		author = "@" + u.Username
 	}
@@ -141,24 +145,24 @@ func (f *Feature) createFromPost(userID, emoji string, post *model.Post, root st
 	defer cancel()
 	t, err := e.tc.CreateTask(cx, tix.CreateTask{
 		Project: project,
-		Title:   reactTitle(post.Message, author),
-		Body:    reactBody(post.Message, author, link),
+		Title:   reactTitle(sl, post.Message, author),
+		Body:    reactBody(sl, post.Message, author, link),
 	})
 	if err != nil {
 		_, _ = f.a.Store.Set(storeFeature, key, nil)
-		return "Could not create the task: " + app.ErrText(app.EN, err)
+		return l.T("tasks.react.create_error", "error", app.ErrText(l, err))
 	}
 	url := e.taskURL(t)
 	_, _ = f.a.Store.Set(storeFeature, key, reactRecord{Ref: t.Ref, URL: url, At: time.Now().UTC()})
 
-	who := "Someone"
+	who := sl.T("tasks.someone")
 	if u, appErr := f.a.API.GetUser(userID); appErr == nil && u != nil {
 		who = "@" + u.Username
 	}
-	reply := &model.Post{UserId: f.a.BotID, ChannelId: post.ChannelId, RootId: root, Message: who + " created " + t.Ref}
+	reply := &model.Post{UserId: f.a.BotID, ChannelId: post.ChannelId, RootId: root, Message: sl.T("tasks.react.created", "who", who, "task", t.Ref)}
 	reply.AddProp(PropCreatedRef, t.Ref)
 	if _, appErr := f.a.API.CreatePost(reply); appErr != nil {
-		return fmt.Sprintf("Created [%s](%s) (posting it to the thread failed).", t.Ref, url)
+		return l.T("tasks.react.post_failed", "task", fmt.Sprintf("[%s](%s)", t.Ref, url))
 	}
 	return ""
 }
@@ -172,7 +176,7 @@ func (f *Feature) siteURL() string {
 }
 
 // reactTitle is the first non-empty line of a message, trimmed and capped.
-func reactTitle(msg, author string) string {
+func reactTitle(l *i18n.Localizer, msg, author string) string {
 	for line := range strings.SplitSeq(msg, "\n") {
 		line = oneLine(strings.TrimLeft(strings.TrimSpace(line), "#>*- "))
 		if line == "" {
@@ -183,13 +187,13 @@ func reactTitle(msg, author string) string {
 		}
 		return line
 	}
-	return "Message from " + author
+	return l.T("tasks.react.title", "author", author)
 }
 
 // reactBody is the message followed by a link back to it.
-func reactBody(msg, author, permalink string) string {
+func reactBody(l *i18n.Localizer, msg, author, permalink string) string {
 	msg = excerpt(msg, maxReactBody)
-	from := fmt.Sprintf("From [a message by %s](%s) in Mattermost.", author, permalink)
+	from := l.T("tasks.react.body", "author", author, "link", permalink)
 	if msg == "" {
 		return from
 	}

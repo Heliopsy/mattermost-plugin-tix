@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/heliopsy/mattermost-plugin-tix/server/i18n"
 	"github.com/heliopsy/mattermost-plugin-tix/server/render"
 	"github.com/heliopsy/mattermost-plugin-tix/server/tix"
 )
@@ -42,7 +43,7 @@ func (e *env) create(ctx context.Context, na *newArgs) (*tix.Task, error) {
 			}
 			id, found, err := e.mmActor(name)
 			if err != nil {
-				return nil, fmt.Errorf("@%s %w; they can run `/tix connect`, or use `--assign <tix handle>`", name, errUnlinkedUser)
+				return nil, i18n.Wrap(errUnlinkedUser, "tasks.err.unlinked_mention", "name", name)
 			}
 			if found {
 				in.Assignee = id
@@ -54,36 +55,64 @@ func (e *env) create(ctx context.Context, na *newArgs) (*tix.Task, error) {
 	return e.tc.CreateTask(ctx, in)
 }
 
-// card renders a task as a few lines: the linked title and its facts.
-func (e *env) card(t *tix.Task, wf *tix.Workflow, verb string) string {
+// card renders a task as a few lines in the user's language: the linked title, after the
+// message headID (with args and {task}) when one is given, and its facts.
+func (e *env) card(t *tix.Task, wf *tix.Workflow, headID string, args ...any) string {
+	return e.cardIn(e.l(), t, wf, headID, args...)
+}
+
+// cardIn is card in language l, for a post the whole channel reads.
+func (e *env) cardIn(l *i18n.Localizer, t *tix.Task, wf *tix.Workflow, headID string, args ...any) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "%s[%s](%s) **%s**\n", verb, t.Ref, e.taskURL(t), oneLine(t.Title))
-	b.WriteString(strings.Join(e.facts(t, wf), " · "))
+	head := fmt.Sprintf("[%s](%s) **%s**", t.Ref, e.taskURL(t), oneLine(t.Title))
+	if headID != "" {
+		head = l.T(headID, append(args, "task", head)...)
+	}
+	b.WriteString(head + "\n")
+	b.WriteString(strings.Join(e.facts(l, t, wf), " · "))
 	return b.String()
 }
 
-// facts are the labelled attributes of a task for a card.
-func (e *env) facts(t *tix.Task, wf *tix.Workflow) []string {
-	out := []string{"**Status:** " + label(wf, t.Status)}
-	out = append(out, "**Assignee:** "+e.mention(t.AssigneeActorID))
-	if p := priorityName(t.Priority); p != "" {
-		out = append(out, "**Priority:** "+p)
+// facts are the labelled attributes of a task for a card, in language l.
+func (e *env) facts(l *i18n.Localizer, t *tix.Task, wf *tix.Workflow) []string {
+	fact := func(labelID, value string) string { return l.T("tasks.fact", "label", l.T(labelID), "value", value) }
+	out := []string{fact(i18n.M("tasks.fact.status"), label(wf, t.Status))}
+	out = append(out, fact(i18n.M("tasks.fact.assignee"), e.mention(t.AssigneeActorID)))
+	if p := priorityText(l, t.Priority); p != "" {
+		out = append(out, fact(i18n.M("tasks.fact.priority"), p))
 	}
 	if d, ok := render.DueOf(t.DueAt); ok {
 		now := e.now()
-		due := e.r().DueDay(d)
+		due := render.New(e.format.OrDefaults(), l, now.Location(), now).DueDay(d)
 		if t.CompletedAt == nil && d.Overdue(now, now.Location()) {
-			due += " (overdue)"
+			due = l.T("tasks.fact.due_overdue", "due", due)
 		}
-		out = append(out, "**Due:** "+due)
+		out = append(out, fact(i18n.M("tasks.fact.due"), due))
 	}
 	if len(t.Tags) > 0 {
-		out = append(out, "**Tags:** `"+strings.Join(t.Tags, "`, `")+"`")
+		out = append(out, fact(i18n.M("tasks.fact.tags"), "`"+strings.Join(t.Tags, "`, `")+"`"))
 	}
 	if t.Blocked {
-		out = append(out, "waiting on another task")
+		out = append(out, l.T("tasks.fact.waiting"))
 	}
 	return out
+}
+
+// priorityText is a priority in words in language l (lowercase, as in the !high syntax), or "".
+func priorityText(l *i18n.Localizer, p int) string {
+	switch p {
+	case 1:
+		return l.T("tasks.priority.highest")
+	case 2:
+		return l.T("tasks.priority.high")
+	case 3:
+		return l.T("tasks.priority.normal")
+	case 4:
+		return l.T("tasks.priority.low")
+	case 5:
+		return l.T("tasks.priority.lowest")
+	}
+	return ""
 }
 
 // show renders one task with its latest comments.
@@ -93,6 +122,7 @@ func (e *env) show(ctx context.Context, ref string) (string, error) {
 		return "", err
 	}
 	wf, _, _ := e.workflowFor(t.ProjectID)
+	l := e.l()
 	var b strings.Builder
 	b.WriteString("#### " + e.card(t, wf, ""))
 	if body := excerpt(t.Body, 600); body != "" {
@@ -102,13 +132,13 @@ func (e *env) show(ctx context.Context, ref string) (string, error) {
 	if err == nil && len(cs.Items) > 0 {
 		items := cs.Items
 		if len(items) > recentComments {
-			fmt.Fprintf(&b, "\n\n**Comments** (last %d of %d)", recentComments, len(items))
+			b.WriteString("\n\n" + l.N("tasks.show.comments_last", len(items), "shown", recentComments))
 			items = items[len(items)-recentComments:]
 		} else {
-			b.WriteString("\n\n**Comments**")
+			b.WriteString("\n\n" + l.T("tasks.show.comments"))
 		}
 		for _, c := range items {
-			fmt.Fprintf(&b, "\n- %s, %s: %s", e.mention(c.AuthorActorID), ago(e.now().Sub(c.CreatedAt)), oneLine(excerpt(c.Body, 300)))
+			b.WriteString("\n- " + l.T("tasks.show.comment", "who", e.mention(c.AuthorActorID), "when", ago(l, e.now().Sub(c.CreatedAt)), "text", oneLine(excerpt(c.Body, 300))))
 		}
 	}
 	return b.String(), nil
@@ -160,11 +190,12 @@ func (e *env) list(ctx context.Context, q *listQuery) (string, error) {
 		}
 		g.tasks = append(g.tasks, t)
 	}
+	l := e.l()
 	if total == 0 {
 		if q.Mine && len(q.Params) == 1 && q.Open {
-			return "You have no open tasks assigned to you in tix.", nil
+			return l.T("tasks.list.none_mine"), nil
 		}
-		return "No tasks match.", nil
+		return l.T("tasks.list.none"), nil
 	}
 	ordered := make([]*group, 0, len(groups))
 	for _, g := range groups {
@@ -181,7 +212,7 @@ func (e *env) list(ctx context.Context, q *listQuery) (string, error) {
 	if page.NextCursor != "" {
 		more = "+"
 	}
-	fmt.Fprintf(&b, "#### %s: %d%s", q.Title, total, more)
+	fmt.Fprintf(&b, "#### %s: %d%s", q.Title(l), total, more)
 	shown := 0
 	for _, g := range ordered {
 		if shown >= maxShown {
@@ -197,7 +228,7 @@ func (e *env) list(ctx context.Context, q *listQuery) (string, error) {
 		}
 	}
 	if shown < total || page.NextCursor != "" {
-		b.WriteString("\n\nShowing the first " + strconv.Itoa(shown) + ". Narrow it with a filter, e.g. `/tix list mine status:todo` or `/tix list infra tag:ops`.")
+		b.WriteString("\n\n" + l.N("tasks.list.more", shown))
 	}
 	return b.String(), nil
 }
@@ -208,17 +239,18 @@ func (e *env) line(t *tix.Task, withAssignee bool) string {
 	if t.Priority == 1 || t.Priority == 2 {
 		parts = append(parts, "!"+priorityName(t.Priority))
 	}
+	l := e.l()
 	if d, ok := render.DueOf(t.DueAt); ok {
 		now := e.now()
 		day := e.r().DueDay(d)
-		due := "due " + day
+		due := l.T("tasks.line.due", "due", day)
 		if t.CompletedAt == nil && d.Overdue(now, now.Location()) {
-			due = "**overdue** " + day
+			due = l.T("tasks.line.overdue", "due", day)
 		}
 		parts = append(parts, due)
 	}
 	if t.Blocked {
-		parts = append(parts, "waiting")
+		parts = append(parts, l.T("tasks.line.waiting"))
 	}
 	if withAssignee && t.AssigneeActorID != "" {
 		parts = append(parts, e.mention(t.AssigneeActorID))
@@ -264,36 +296,39 @@ func (e *env) move(ctx context.Context, ref string, in intent, target, comment s
 		return "", err
 	}
 	r := resolve(wf, t.Status, g)
+	l := e.l()
 	link := fmt.Sprintf("[%s](%s)", t.Ref, e.taskURL(t))
 	cur := label(wf, t.Status)
 	switch {
 	case r.Already:
-		return fmt.Sprintf("%s is already **%s**.", link, cur), nil
+		return l.T("tasks.move.already", "task", link, "state", cur), nil
 	case r.Transition == nil:
-		msg := fmt.Sprintf("The %s workflow has no direct move from **%s** to %s.", wf.Name, cur, g.what)
+		msg := l.T("tasks.move.no_direct", "workflow", wf.Name, "from", cur, "goal", g.describe(l))
 		if len(r.Reachable) > 0 {
-			msg += " From here it can go to " + stateList(wf, r.Reachable) + "."
+			msg += " " + l.T("tasks.move.reachable", "states", stateList(l, wf, r.Reachable))
 		} else {
-			msg += " Nothing is reachable from here."
+			msg += " " + l.T("tasks.move.nothing_reachable")
 		}
 		if len(r.Route) > 1 {
 			names := make([]string, len(r.Route))
 			for i, s := range r.Route {
 				names[i] = labelOf(s)
 			}
-			msg += fmt.Sprintf(" The shortest way is %s → %s: start with `/tix move %s %s`.", cur, strings.Join(names, " → "), t.Ref, r.Route[0].Key)
+			msg += " " + l.T("tasks.move.route", "route", cur+" → "+strings.Join(names, " → "),
+				"command", fmt.Sprintf("/tix move %s %s", t.Ref, r.Route[0].Key))
 		}
 		return msg, nil
 	case r.Transition.RequiresComment && strings.TrimSpace(comment) == "":
-		return fmt.Sprintf("Moving %s to **%s** needs a comment: `%s`.", link, label(wf, r.Transition.To), usageWithComment(in, t.Ref, r.Transition.To)), nil
+		return l.T("tasks.move.needs_comment", "task", link, "state", label(wf, r.Transition.To),
+			"command", usageWithComment(in, t.Ref, r.Transition.To)), nil
 	}
 	moved, err := e.tc.Transition(ctx, t.Ref, r.Transition.To, comment)
 	if err != nil {
 		return "", err
 	}
-	msg := fmt.Sprintf("Moved %s **%s**: %s → **%s**.", link, oneLine(moved.Title), cur, label(wf, moved.Status))
+	msg := l.T("tasks.move.moved", "task", link, "title", oneLine(moved.Title), "from", cur, "to", label(wf, moved.Status))
 	if comment != "" {
-		msg += " Your comment was added."
+		msg += " " + l.T("tasks.move.comment_added")
 	}
 	return msg, nil
 }
@@ -308,16 +343,16 @@ func usageWithComment(in intent, ref, to string) string {
 // comment adds a comment to a task.
 func (e *env) comment(ctx context.Context, ref, text string) (string, error) {
 	if strings.TrimSpace(text) == "" {
-		return "", fmt.Errorf("write the comment after the reference: `/tix comment %s <text>`", ref)
+		return "", i18n.NewError("tasks.err.comment_text", "ref", ref)
 	}
 	if _, err := e.tc.AddComment(ctx, ref, text); err != nil {
 		return "", err
 	}
 	t, err := e.tc.GetTask(ctx, ref)
 	if err != nil {
-		return fmt.Sprintf("Commented on %s.", ref), nil
+		return e.l().T("tasks.comment.done", "task", ref), nil
 	}
-	return fmt.Sprintf("Commented on [%s](%s) **%s**.", t.Ref, e.taskURL(t), oneLine(t.Title)), nil
+	return e.l().T("tasks.comment.done", "task", fmt.Sprintf("[%s](%s) **%s**", t.Ref, e.taskURL(t), oneLine(t.Title))), nil
 }
 
 // assign sets or clears a task's assignee.
@@ -332,9 +367,9 @@ func (e *env) assign(ctx context.Context, ref, who string) (string, error) {
 	}
 	link := fmt.Sprintf("[%s](%s) **%s**", t.Ref, e.taskURL(t), oneLine(t.Title))
 	if t.AssigneeActorID == "" {
-		return "Unassigned " + link + ".", nil
+		return e.l().T("tasks.assign.unassigned", "task", link), nil
 	}
-	return fmt.Sprintf("Assigned %s to %s.", link, e.mention(t.AssigneeActorID)), nil
+	return e.l().T("tasks.assign.assigned", "task", link, "assignee", e.mention(t.AssigneeActorID)), nil
 }
 
 func oneLine(s string) string {
@@ -360,16 +395,16 @@ func quote(s string) string {
 	return "> " + strings.ReplaceAll(s, "\n", "\n> ")
 }
 
-// ago renders a duration in the past, roughly.
-func ago(d time.Duration) string {
+// ago renders a duration in the past, roughly, in language l.
+func ago(l *i18n.Localizer, d time.Duration) string {
 	switch {
 	case d < time.Minute:
-		return "just now"
+		return l.T("tasks.ago.now")
 	case d < time.Hour:
-		return fmt.Sprintf("%d min ago", int(d.Minutes()))
+		return l.N("tasks.ago.minutes", int(d.Minutes()))
 	case d < 48*time.Hour:
-		return fmt.Sprintf("%d h ago", int(d.Hours()))
+		return l.N("tasks.ago.hours", int(d.Hours()))
 	default:
-		return fmt.Sprintf("%d days ago", int(d.Hours()/24))
+		return l.N("tasks.ago.days", int(d.Hours()/24))
 	}
 }
