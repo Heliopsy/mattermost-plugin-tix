@@ -456,8 +456,8 @@ func (f *Feature) listTasks(w http.ResponseWriter, r *http.Request) {
 		}
 		q.Add("status", s)
 	}
-	if in.Get("mine") == "true" {
-		q.Set("assignee", "me")
+	if mine, _ := strconv.ParseBool(in.Get("mine")); mine {
+		q.Set("assignee", tc.Me)
 	}
 
 	cat, err := f.catalog(uid)
@@ -475,7 +475,7 @@ func (f *Feature) listTasks(w http.ResponseWriter, r *http.Request) {
 		proj = &p
 		q.Set("project", p.Key)
 	}
-	open := in.Get("open") == "true"
+	open, _ := strconv.ParseBool(in.Get("open"))
 	if open {
 		for _, s := range closedStates(cat, proj) {
 			q.Add("not_status", s)

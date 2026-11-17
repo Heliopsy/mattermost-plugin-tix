@@ -104,6 +104,9 @@ func (a *App) TixFor(userID string) (*tix.Client, *store.Link, error) {
 		return nil, nil, err
 	}
 	c, err := a.NewTix(tok)
+	if c != nil {
+		c.Me = l.ActorID
+	}
 	return c, l, err
 }
 

@@ -35,7 +35,7 @@
                 "display_name": "Admin token (optional):",
                 "type": "text",
                 "secret": true,
-                "help_text": "A tix token holding token:admin and task:read. With it, `/tix connect` issues each person a tix token of their own, matched by their verified email, and `/tix webhook setup` registers the plugin's webhook. Without it, people paste a token they made in tix.",
+                "help_text": "A tix token holding token:admin, user:admin, tenant:admin and webhook:admin, plus every scope it hands out to people (task:read, task:write, task:transition, task:claim, project:read, workflow:read, comment:write, artifact:write, event:subscribe, audit:read), since tix only lets a token grant scopes it holds. An admin role token (*) works. With it, `/tix connect` issues each person a tix token of their own, matched by their verified email, and `/tix webhook setup` registers the plugin's webhook. Without it, people paste a token they made in tix.",
                 "default": ""
             },
             {

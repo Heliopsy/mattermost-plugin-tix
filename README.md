@@ -96,14 +96,16 @@ channels, DMs to the people concerned and redrawn task cards.
 
 ### Setup
 
-1. In tix, make a token for the plugin with `token:admin`, `webhook:admin`, `task:read`, `project:read` and
-   `workflow:read`, and paste it into System Console > Plugins > tix > **Admin token**. `webhook:admin` registers
+1. In tix, make a token for the plugin with `token:admin`, `user:admin` and `tenant:admin` (to find people by email and read
+   their role), `webhook:admin`, and every scope it hands out to people (`task:read`, `task:write`,
+   `task:transition`, `task:claim`, `project:read`, `workflow:read`, `comment:write`, `artifact:write`,
+   `event:subscribe`, `audit:read`): tix only lets a token grant scopes it holds. An admin-role token (`*`) works. Paste it into System Console > Plugins > tix > **Admin token**. `webhook:admin` registers
    the webhook; the read scopes let the plugin show task titles, comment text and workflow state labels
    ("To do → Doing"). Without the read scopes it falls back to the token of the person who caused the event,
    when they have connected, and otherwise to raw state keys.
 2. Click **Regenerate** next to **Webhook secret** and save. Until a secret exists the receiver rejects everything.
 3. Run `/tix webhook setup` as a system admin. It registers (or updates) a tenant webhook in tix pointing at
-   `<SiteURL>/plugins/cc.heliopsy.tix/public/webhook`, signed with that secret, for task changes and
+   `<SiteURL>/plugins/cc.heliopsy.tix/hooks/webhook`, signed with that secret, for task changes and
    `comment.added`. tix only delivers to `https` URLs on public addresses (an operator can relax this with
    `webhooks.allow_private_targets`). `/tix webhook status` shows the endpoint and its last deliveries;
    `/tix webhook remove` deletes it. After regenerating the secret, run `/tix webhook setup` again.

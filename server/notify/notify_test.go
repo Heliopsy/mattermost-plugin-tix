@@ -275,7 +275,7 @@ func TestWebhookEndpoint(t *testing.T) {
 
 	ping := `{"seq":30,"id":"01PING","tenant_id":"t","type":"webhook.ping","subject_type":"webhook","subject_id":"w","payload":{},"occurred_at":"2026-11-17T09:00:00Z"}`
 	post := func(body, ts, sig string) int {
-		r := httptest.NewRequest(http.MethodPost, "/public/webhook", strings.NewReader(body))
+		r := httptest.NewRequest(http.MethodPost, "/hooks/webhook", strings.NewReader(body))
 		r.Header.Set(headerTimestamp, ts)
 		r.Header.Set(headerSignature, sig)
 		r.Header.Set(headerEvent, "webhook.ping")
@@ -293,7 +293,7 @@ func TestWebhookEndpoint(t *testing.T) {
 	assert.Equal(t, http.StatusAccepted, post(ping, now, sign(secret, now, []byte(ping))), "valid")
 	assert.Equal(t, http.StatusOK, post(ping, now, sign(secret, now, []byte(ping))), "repeat is acknowledged and ignored")
 
-	r := httptest.NewRequest(http.MethodGet, "/public/webhook", nil)
+	r := httptest.NewRequest(http.MethodGet, "/hooks/webhook", nil)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(&plugin.Context{}, w, r)
 	assert.Equal(t, http.StatusMethodNotAllowed, w.Code)
@@ -301,7 +301,7 @@ func TestWebhookEndpoint(t *testing.T) {
 	a2 := app.New(fakeAPI{}, nil, nil, "bot", func() *app.Config { return &app.Config{} })
 	h2 := api.NewHandler(fakeAPI{})
 	New(a2, nil).Routes(h2)
-	r = httptest.NewRequest(http.MethodPost, "/public/webhook", strings.NewReader(ping))
+	r = httptest.NewRequest(http.MethodPost, "/hooks/webhook", strings.NewReader(ping))
 	r.Header.Set(headerTimestamp, now)
 	r.Header.Set(headerSignature, sign("", now, []byte(ping)))
 	w = httptest.NewRecorder()

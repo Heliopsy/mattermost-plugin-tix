@@ -22,6 +22,9 @@ type Client struct {
 	BaseURL string
 	Token   string
 	HTTP    *http.Client
+	// Me is the actor id of the token's person. The tix API takes no "me" in task filters
+	// (only its CLI resolves it), so ListTasks swaps "me" for Me.
+	Me string
 }
 
 // New returns a client for baseURL (the server root, without /api/v1).
@@ -271,6 +274,9 @@ func (c *Client) GetTask(ctx context.Context, ref string) (*Task, error) {
 
 // ListTasks lists tasks; q carries the filters of GET /tasks (project, status, assignee, q, limit...).
 func (c *Client) ListTasks(ctx context.Context, q url.Values) (*Page[Task], error) {
+	if c.Me != "" {
+		q = resolveMe(q, c.Me)
+	}
 	var p Page[Task]
 	return &p, c.Do(ctx, http.MethodGet, "/tasks", q, nil, &p)
 }
@@ -387,3 +393,61 @@ var MemberScopes = []string{
 
 // ViewerScopes are what a tix viewer role grants.
 var ViewerScopes = []string{"task:read", "project:read", "workflow:read", "event:subscribe", "audit:read"}
+
+// User is a person's account (GET /users, needs user:admin).
+type User struct {
+	ID          string `json:"id"`
+	Email       string `json:"email"`
+	DisplayName string `json:"display_name"`
+	DisabledAt  string `json:"disabled_at"`
+	Removed     bool   `json:"removed"`
+}
+
+// Membership is an actor's role in the tenant (GET /members, needs tenant:admin).
+type Membership struct {
+	ActorID string `json:"actor_id"`
+	Role    string `json:"role"`
+}
+
+// ListUsers lists the tenant's people with their emails.
+func (c *Client) ListUsers(ctx context.Context) ([]User, error) {
+	return listAll[User](ctx, c, "/users")
+}
+
+// ListMembers lists the tenant's memberships with their roles.
+func (c *Client) ListMembers(ctx context.Context) ([]Membership, error) {
+	return listAll[Membership](ctx, c, "/members")
+}
+
+func listAll[T any](ctx context.Context, c *Client, path string) ([]T, error) {
+	var all []T
+	q := url.Values{"limit": {"500"}}
+	for {
+		var p Page[T]
+		if err := c.Do(ctx, http.MethodGet, path, q, nil, &p); err != nil {
+			return nil, err
+		}
+		all = append(all, p.Items...)
+		if p.NextCursor == "" {
+			return all, nil
+		}
+		q.Set("cursor", p.NextCursor)
+	}
+}
+
+// resolveMe returns a copy of q with "me" replaced by the actor id in the person filters.
+func resolveMe(q url.Values, me string) url.Values {
+	out := url.Values{}
+	for k, vs := range q {
+		for _, v := range vs {
+			switch k {
+			case "assignee", "creator", "claimed_by", "not_assignee":
+				if strings.EqualFold(v, "me") || strings.EqualFold(v, "@me") {
+					v = me
+				}
+			}
+			out.Add(k, v)
+		}
+	}
+	return out
+}

@@ -14,7 +14,7 @@ The tix HTTP API is described by `api/openapi.yaml` and `docs/api.md` in the tix
 - `server/app` is what features share: `TixFor(userID)` (a client acting as that person, or `ErrNotLinked`),
   cached projects, workflows and actors, `MentionFor`, `Ephemeral`, `DM`, `PluginURL`, `ErrText`.
 - `server/command` owns `/tix`: features add `command.Sub`s; the registry builds autocomplete and help.
-- `server/api` owns the router: `Public` (`/public/...`, no Mattermost session; each route authenticates itself)
+- `server/api` owns the router: `Public` (`/hooks/...`, no Mattermost session; `/public/` is Mattermost's static path; each route authenticates itself)
   and `User` (`/api/v1/...`, `Mattermost-User-ID` set by the server).
 - Features are packages with `New`, `Commands()` and `Routes(*api.Handler)`, wired in `server/plugin.go`:
   `link` (connect, disconnect, me), `tasks` (working tasks by command), `cards` (task cards and actions),

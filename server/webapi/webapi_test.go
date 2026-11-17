@@ -267,7 +267,7 @@ func TestListMineOpen(t *testing.T) {
 	require.Equal(t, http.StatusOK, code)
 
 	assert.Equal(t, "Bearer tok-alice", e.tix.lastAuth)
-	assert.Equal(t, "me", e.tix.lastQ.Get("assignee"))
+	assert.Equal(t, "act-alice", e.tix.lastQ.Get("assignee"), "the tix API takes no \"me\"; the actor id goes out")
 	assert.Equal(t, []string{"done"}, e.tix.lastQ["not_status"])
 	assert.Equal(t, "login", e.tix.lastQ.Get("q"))
 

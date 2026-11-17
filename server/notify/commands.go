@@ -294,7 +294,7 @@ func (f *Feature) findEndpoint(admin *tix.Client) (*tix.Webhook, error) {
 	}
 	var rec endpointRecord
 	_ = f.a.Store.Get("notify", "endpoint", &rec)
-	url := f.a.PluginURL("/public/webhook")
+	url := f.a.PluginURL("/hooks/webhook")
 	for i := range hooks {
 		if rec.ID != "" && hooks[i].ID == rec.ID {
 			return &hooks[i], nil
@@ -319,7 +319,7 @@ func (f *Feature) webhookSetup(c *command.Ctx, admin *tix.Client) *model.Command
 	if err != nil {
 		return command.Ephemeral(app.ErrText(err))
 	}
-	in := tix.WebhookInput{URL: f.a.PluginURL("/public/webhook"), Secret: secret, EventTypes: webhookEventTypes, Active: true}
+	in := tix.WebhookInput{URL: f.a.PluginURL("/hooks/webhook"), Secret: secret, EventTypes: webhookEventTypes, Active: true}
 	if existing != nil {
 		in.ID = existing.ID
 	}

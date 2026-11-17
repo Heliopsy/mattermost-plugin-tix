@@ -9,7 +9,7 @@ personal DMs to the people a change concerns, and redraws task cards, without ev
 
 ### Requirement: Verified webhook deliveries
 
-The plugin SHALL accept tix deliveries at `POST /plugins/cc.heliopsy.tix/public/webhook` only when
+The plugin SHALL accept tix deliveries at `POST /plugins/cc.heliopsy.tix/hooks/webhook` only when
 `X-Tix-Signature` equals `sha256=` followed by the hex HMAC-SHA256, under the configured webhook secret, of the
 `X-Tix-Timestamp` value, a `.` and the raw body, compared in constant time. It SHALL reject a timestamp more than
 five minutes from the current time, and SHALL reject every delivery while no secret is configured.

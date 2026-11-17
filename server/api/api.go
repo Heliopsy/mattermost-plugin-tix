@@ -23,7 +23,7 @@ import (
 type Handler struct {
 	pluginAPI plugin.API
 	router    *mux.Router
-	// Public is for callers without a Mattermost session; each route authenticates itself.
+	// Public (/hooks/...) is for callers without a Mattermost session; each route authenticates itself.
 	Public *mux.Router
 	// User requires Mattermost-User-ID, which the server sets only after authenticating.
 	User *mux.Router
@@ -34,7 +34,8 @@ func NewHandler(pluginAPI plugin.API) *Handler {
 	h := &Handler{pluginAPI: pluginAPI}
 	h.router = mux.NewRouter()
 	h.router.Use(h.logRequests, h.recoverPanic, limitRequestBody, setSecurityHeaders)
-	h.Public = h.router.PathPrefix("/public").Subrouter()
+	// Mattermost serves /plugins/<id>/public/ itself (static files), so these live under /hooks.
+	h.Public = h.router.PathPrefix("/hooks").Subrouter()
 	h.User = h.router.PathPrefix("/api/v1").Subrouter()
 	h.User.Use(h.MattermostAuthorizationRequired)
 	return h

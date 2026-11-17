@@ -156,23 +156,41 @@ func (f *Feature) linkByEmail(userID string) (string, error) {
 	}
 	ctx, cancel := app.Ctx()
 	defer cancel()
-	actors, err := admin.ListActors(ctx)
+	users, err := admin.ListUsers(ctx)
 	if err != nil {
-		return "", fmt.Errorf("listing tix accounts with the admin token: %w", err)
+		return "", fmt.Errorf("listing tix accounts with the admin token (needs user:admin): %w", err)
 	}
-	var match *tix.Actor
-	for i := range actors {
-		if actors[i].Kind == "user" && strings.EqualFold(actors[i].Email, u.Email) {
-			match = &actors[i]
+	var match *tix.User
+	for i := range users {
+		if !users[i].Removed && users[i].DisabledAt == "" && strings.EqualFold(users[i].Email, u.Email) {
+			match = &users[i]
 			break
 		}
 	}
 	if match == nil {
 		return "", errNoMatch
 	}
+	members, err := admin.ListMembers(ctx)
+	if err != nil {
+		return "", fmt.Errorf("reading tix roles with the admin token (needs tenant:admin): %w", err)
+	}
+	role := ""
+	for _, m := range members {
+		if m.ActorID == match.ID {
+			role = m.Role
+		}
+	}
 	scopes := tix.MemberScopes
-	if match.Role == "viewer" {
+	switch role {
+	case "member", "admin":
+	case "viewer":
 		scopes = tix.ViewerScopes
+	default:
+		return "", fmt.Errorf("%w: your tix account is not a member of this tenant", errNoMatch)
+	}
+	actor, err := admin.GetActor(ctx, match.ID)
+	if err != nil {
+		return "", fmt.Errorf("reading your tix account: %w", err)
 	}
 	if old, gerr := f.a.Store.GetLink(userID); gerr == nil && old.Minted {
 		f.revoke(old)
@@ -182,12 +200,12 @@ func (f *Feature) linkByEmail(userID string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("issuing your tix token: %w", err)
 	}
-	l := &store.Link{UserID: userID, ActorID: match.ID, Handle: match.Handle, Email: match.Email, TenantKey: match.TenantKey, TokenID: issued.ID, Minted: true, LinkedAt: time.Now()}
+	l := &store.Link{UserID: userID, ActorID: match.ID, Handle: actor.Handle, Email: match.Email, TenantKey: actor.TenantKey, TokenID: issued.ID, Minted: true, LinkedAt: time.Now()}
 	if err := f.a.Store.SaveLink(l, issued.Token); err != nil {
 		return "", err
 	}
 	f.a.InvalidateUser(userID)
-	return fmt.Sprintf("Connected to tix as **%s** (matched by your email). tix records what you do here as you; the token is named `%s` and `/tix disconnect` revokes it.", match.Name(), name), nil
+	return fmt.Sprintf("Connected to tix as **%s** (matched by your email). tix records what you do here as you; the token is named `%s` and `/tix disconnect` revokes it.", actor.Name(), name), nil
 }
 
 // revoke deletes the token a link holds, as the linked person, falling back to the admin token.
@@ -241,8 +259,16 @@ func (f *Feature) me(c *command.Ctx, _ []string) *model.CommandResponse {
 	if err != nil {
 		return command.Ephemeral(app.ErrText(err))
 	}
+	person, handle := me.Name(), ""
+	if act, aerr := f.a.Actor(c.Args.UserId, l.ActorID); aerr == nil && act != nil {
+		person, handle = act.Name(), " (`"+act.Handle+"`)"
+	}
 	scopes := slices.Clone(me.Scopes)
 	slices.Sort(scopes)
-	return command.Ephemeral(fmt.Sprintf("Connected to **%s** as **%s** (`%s`) in tenant **%s** since %s.\nScopes: `%s`",
-		f.a.TixURL(), me.Name(), me.Handle, me.TenantName, l.LinkedAt.Format("02.01.2006"), strings.Join(scopes, "`, `")))
+	tenant := ""
+	if me.TenantName != "" {
+		tenant = " in tenant **" + me.TenantName + "**"
+	}
+	return command.Ephemeral(fmt.Sprintf("Connected to **%s** as **%s**%s%s since %s, with the token `%s`.\nScopes: `%s`",
+		f.a.TixURL(), person, handle, tenant, l.LinkedAt.Format("02.01.2006"), me.Handle, strings.Join(scopes, "`, `")))
 }
