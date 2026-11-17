@@ -162,12 +162,19 @@ func setup(t *testing.T) *env {
 	require.NoError(t, st.SaveLink(&store.Link{UserID: e.bob, ActorID: "act-bob", Handle: "bob", LinkedAt: time.Now()}, "tok-bob"))
 
 	e.h = api.NewHandler(papi)
-	New(a, func(string) (string, error) {
+	f := New(a, func(string) (string, error) {
 		if e.connectErr != nil {
 			return "", e.connectErr
 		}
 		return "Connected", nil
-	}).Routes(e.h)
+	})
+	f.ChannelProject = func(userID, channelID string) string {
+		if userID == e.alice && channelID == defaultsChannel {
+			return "infra"
+		}
+		return ""
+	}
+	f.Routes(e.h)
 	return e
 }
 
@@ -234,6 +241,9 @@ func TestNotLinked(t *testing.T) {
 	}
 }
 
+// defaultsChannel is the channel whose default project the test feature reports to alice.
+var defaultsChannel = model.NewId()
+
 func TestMeLinked(t *testing.T) {
 	e := setup(t)
 	code, body := e.do(t, e.alice, http.MethodGet, "/me", nil)
@@ -242,6 +252,14 @@ func TestMeLinked(t *testing.T) {
 	actor := body["actor"].(map[string]any)
 	assert.Equal(t, "act-alice", actor["actor_id"])
 	assert.Equal(t, "alice", actor["username"])
+	assert.NotContains(t, body, "default_project")
+
+	_, body = e.do(t, e.alice, http.MethodGet, "/me?channel_id="+defaultsChannel, nil)
+	assert.Equal(t, "infra", body["default_project"])
+	_, body = e.do(t, e.bob, http.MethodGet, "/me?channel_id="+defaultsChannel, nil)
+	assert.NotContains(t, body, "default_project", "the feature decides who sees it")
+	_, body = e.do(t, e.alice, http.MethodGet, "/me?channel_id=not-an-id", nil)
+	assert.NotContains(t, body, "default_project")
 }
 
 func TestConnect(t *testing.T) {

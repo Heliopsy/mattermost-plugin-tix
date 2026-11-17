@@ -86,6 +86,14 @@
                 "type": "number",
                 "help_text": "A task that got a card in a channel gets no further card there for this many minutes. 0 means the default of 10.",
                 "default": 10
+            },
+            {
+                "key": "CreateEmoji",
+                "display_name": "Create-task reaction:",
+                "type": "text",
+                "help_text": "Reacting to a message with this emoji creates a tix task from it in the channel's default project (set with /tix channel project). The emoji name without colons; leave empty for ticket.",
+                "placeholder": "ticket",
+                "default": "ticket"
             }
         ]
     },

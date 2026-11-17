@@ -36,6 +36,7 @@ type Plugin struct {
 	http     *api.Handler
 	commands *command.Registry
 	cards    *cards.Feature
+	tasks    *tasks.Feature
 }
 
 // feature is what every feature package offers.
@@ -63,6 +64,7 @@ func (p *Plugin) OnActivate() error {
 		return &app.Config{
 			TixURL: c.TixURL, AdminToken: c.AdminToken, EncryptionKey: c.EncryptionKey, WebhookSecret: c.WebhookSecret,
 			UnfurlRefs: c.UnfurlRefs, CardStyle: c.CardStyle, CardQuietMinutes: quietMinutes(c.CardQuietMinutes),
+			CreateEmoji: c.CreateEmoji,
 		}
 	})
 
@@ -70,7 +72,10 @@ func (p *Plugin) OnActivate() error {
 	p.commands = command.NewRegistry(p.app)
 	p.cards = cards.New(p.app)
 	linker := link.New(p.app)
-	for _, f := range []feature{linker, tasks.New(p.app), p.cards, notify.New(p.app, p.cards), webapi.New(p.app, linker.ConnectByEmail)} {
+	p.tasks = tasks.New(p.app)
+	web := webapi.New(p.app, linker.ConnectByEmail)
+	web.ChannelProject = p.tasks.ChannelProject
+	for _, f := range []feature{linker, p.tasks, p.cards, notify.New(p.app, p.cards), web} {
 		p.commands.Add(f.Commands()...)
 		f.Routes(p.http)
 	}
@@ -95,6 +100,11 @@ func (p *Plugin) MessageWillBePosted(c *plugin.Context, post *model.Post) (*mode
 // MessageHasBeenPosted lets the cards feature answer with task cards and mirror synced replies.
 func (p *Plugin) MessageHasBeenPosted(c *plugin.Context, post *model.Post) {
 	p.cards.MessageHasBeenPosted(c, post)
+}
+
+// ReactionHasBeenAdded lets the tasks feature create a task from a message reacted to with the create emoji.
+func (p *Plugin) ReactionHasBeenAdded(c *plugin.Context, reaction *model.Reaction) {
+	p.tasks.ReactionHasBeenAdded(c, reaction)
 }
 
 // MessageHasBeenUpdated lets the cards feature card a reference added by an edit.
