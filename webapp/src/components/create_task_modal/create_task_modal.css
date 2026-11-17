@@ -1,0 +1,34 @@
+.TixPlugin-CreateTask__backdrop {
+    position: fixed;
+    z-index: var(--z-modal, 1050);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: var(--spacing-m);
+    background: rgba(0, 0, 0, 0.5);
+    inset: 0;
+}
+
+.TixPlugin-CreateTask__form {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-m);
+}
+
+.TixPlugin-CreateTask__row {
+    display: grid;
+    gap: var(--spacing-m);
+    grid-template-columns: 1fr 1fr;
+}
+
+.TixPlugin-CreateTask__state,
+.TixPlugin-CreateTask__done {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--spacing-s);
+}
+
+.TixPlugin-CreateTask__link {
+    color: var(--link-color);
+}

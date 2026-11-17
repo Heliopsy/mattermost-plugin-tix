@@ -1,0 +1,221 @@
+.TixPlugin-Sidebar {
+    display: flex;
+    height: 100%;
+    flex-direction: column;
+    background: var(--center-channel-bg);
+    color: var(--center-channel-color);
+    font-size: var(--font-size-100);
+    line-height: var(--line-height-100);
+}
+
+.TixPlugin-Sidebar__header {
+    padding: 0 var(--spacing-m);
+    border-bottom: 1px solid rgba(var(--center-channel-color-rgb), 0.08);
+}
+
+.TixPlugin-Sidebar__body {
+    overflow: auto;
+    flex: 1;
+}
+
+.TixPlugin-Sidebar__filters {
+    display: flex;
+    flex-direction: column;
+    padding: var(--spacing-m);
+    gap: var(--spacing-s);
+}
+
+.TixPlugin-Sidebar__note {
+    padding: var(--spacing-m);
+    color: rgba(var(--center-channel-color-rgb), 0.72);
+}
+
+.TixPlugin-TaskList__state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: var(--spacing-xl) var(--spacing-m);
+    gap: var(--spacing-s);
+}
+
+.TixPlugin-TaskList__group {
+    padding: var(--spacing-s) 0;
+}
+
+.TixPlugin-TaskList__heading {
+    display: flex;
+    align-items: center;
+    margin: 0;
+    padding: var(--spacing-xs) var(--spacing-m);
+    color: rgba(var(--center-channel-color-rgb), 0.72);
+    font-size: var(--font-size-75);
+    font-weight: var(--font-weight-semibold);
+    gap: var(--spacing-xs);
+    text-transform: uppercase;
+}
+
+.TixPlugin-TaskList__count {
+    font-weight: var(--font-weight-regular);
+}
+
+.TixPlugin-TaskList__items {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.TixPlugin-TaskList__row {
+    display: flex;
+    width: 100%;
+    flex-direction: column;
+    padding: var(--spacing-s) var(--spacing-m);
+    border: 0;
+    background: none;
+    color: inherit;
+    gap: var(--spacing-xxs);
+    text-align: start;
+}
+
+.TixPlugin-TaskList__row:hover {
+    background: rgba(var(--center-channel-color-rgb), 0.08);
+}
+
+.TixPlugin-TaskList__row:focus-visible {
+    outline: 2px solid var(--button-bg);
+    outline-offset: -2px;
+}
+
+.TixPlugin-TaskList__top,
+.TixPlugin-TaskList__meta {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-s);
+}
+
+.TixPlugin-TaskList__ref {
+    color: rgba(var(--center-channel-color-rgb), 0.72);
+    font-family: var(--font-family-mono);
+    font-size: var(--font-size-75);
+}
+
+.TixPlugin-TaskList__title {
+    font-weight: var(--font-weight-semibold);
+}
+
+.TixPlugin-TaskList__meta {
+    color: rgba(var(--center-channel-color-rgb), 0.64);
+    font-size: var(--font-size-75);
+}
+
+.TixPlugin-TaskList__more {
+    display: flex;
+    justify-content: center;
+    padding: var(--spacing-s);
+}
+
+.TixPlugin-TaskDetail {
+    display: flex;
+    flex-direction: column;
+    padding: var(--spacing-s) var(--spacing-m) var(--spacing-l);
+    gap: var(--spacing-m);
+}
+
+.TixPlugin-TaskDetail__nav {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-s);
+}
+
+.TixPlugin-TaskDetail__ref {
+    color: rgba(var(--center-channel-color-rgb), 0.72);
+    font-family: var(--font-family-mono);
+}
+
+.TixPlugin-TaskDetail__open {
+    display: inline-flex;
+    align-items: center;
+    margin-inline-start: auto;
+    color: var(--link-color);
+    gap: var(--spacing-xxs);
+}
+
+.TixPlugin-TaskDetail__title {
+    margin: 0;
+    font-size: var(--font-size-300);
+    font-weight: var(--font-weight-semibold);
+    line-height: var(--line-height-300);
+}
+
+.TixPlugin-TaskDetail__status,
+.TixPlugin-TaskDetail__moves,
+.TixPlugin-TaskDetail__actions,
+.TixPlugin-TaskDetail__tags {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--spacing-xs);
+}
+
+.TixPlugin-TaskDetail__section {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-s);
+}
+
+.TixPlugin-TaskDetail__label {
+    margin: 0;
+    color: rgba(var(--center-channel-color-rgb), 0.72);
+    font-size: var(--font-size-75);
+    font-weight: var(--font-weight-semibold);
+    text-transform: uppercase;
+}
+
+.TixPlugin-TaskDetail__moveComment {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-xs);
+}
+
+.TixPlugin-TaskDetail__fields {
+    display: grid;
+    align-items: center;
+    margin: 0;
+    gap: var(--spacing-xs) var(--spacing-m);
+    grid-template-columns: max-content 1fr;
+}
+
+.TixPlugin-TaskDetail__term {
+    color: rgba(var(--center-channel-color-rgb), 0.72);
+}
+
+.TixPlugin-TaskDetail__value {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    margin: 0;
+    gap: var(--spacing-xs);
+}
+
+.TixPlugin-TaskDetail__comments {
+    display: flex;
+    flex-direction: column;
+    margin: 0;
+    padding: 0;
+    gap: var(--spacing-s);
+    list-style: none;
+}
+
+.TixPlugin-TaskDetail__comment {
+    padding: var(--spacing-s);
+    border-radius: var(--radius-s);
+    background: rgba(var(--center-channel-color-rgb), 0.04);
+}
+
+.TixPlugin-TaskDetail__commentHead {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: var(--spacing-xxs);
+    color: rgba(var(--center-channel-color-rgb), 0.72);
+    font-size: var(--font-size-75);
+    gap: var(--spacing-s);
+}

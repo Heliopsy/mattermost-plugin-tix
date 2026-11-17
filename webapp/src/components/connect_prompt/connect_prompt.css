@@ -1,0 +1,8 @@
+.TixPlugin-ConnectPrompt {
+    padding: var(--spacing-m);
+}
+
+.TixPlugin-ConnectPrompt__error {
+    margin-top: var(--spacing-xs);
+    color: var(--error-text);
+}

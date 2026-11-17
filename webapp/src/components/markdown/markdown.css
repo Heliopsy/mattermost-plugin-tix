@@ -1,0 +1,10 @@
+.TixPlugin-Markdown {
+    overflow-wrap: anywhere;
+    color: var(--center-channel-color);
+    font-size: var(--font-size-100);
+    line-height: var(--line-height-100);
+}
+
+.TixPlugin-Markdown--plain {
+    white-space: pre-wrap;
+}
