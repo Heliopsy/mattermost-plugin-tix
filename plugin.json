@@ -1,0 +1,69 @@
+{
+    "id": "cc.heliopsy.tix",
+    "name": "tix",
+    "description": "Work tix tasks from Mattermost: create, move, close and comment, live task cards, channel feeds and personal notifications.",
+    "homepage_url": "https://github.com/heliopsy/mattermost-plugin-tix",
+    "support_url": "https://github.com/heliopsy/mattermost-plugin-tix/issues",
+    "icon_path": "assets/icon.svg",
+    "min_server_version": "11.7.0",
+    "server": {
+        "executables": {
+            "linux-amd64": "server/dist/plugin-linux-amd64",
+            "linux-arm64": "server/dist/plugin-linux-arm64",
+            "darwin-amd64": "server/dist/plugin-darwin-amd64",
+            "darwin-arm64": "server/dist/plugin-darwin-arm64",
+            "windows-amd64": "server/dist/plugin-windows-amd64.exe"
+        }
+    },
+    "webapp": {
+        "bundle_path": "webapp/dist/main.js"
+    },
+    "settings_schema": {
+        "header": "Connect Mattermost to a [tix](https://github.com/heliopsy/tix) server.",
+        "footer": "",
+        "settings": [
+            {
+                "key": "TixURL",
+                "display_name": "tix server URL:",
+                "type": "text",
+                "help_text": "The root of the tix server, for example https://tix.example.com.",
+                "placeholder": "https://tix.example.com",
+                "default": ""
+            },
+            {
+                "key": "AdminToken",
+                "display_name": "Admin token (optional):",
+                "type": "text",
+                "secret": true,
+                "help_text": "A tix token holding token:admin and task:read. With it, `/tix connect` issues each person a tix token of their own, matched by their verified email, and `/tix webhook setup` registers the plugin's webhook. Without it, people paste a token they made in tix.",
+                "default": ""
+            },
+            {
+                "key": "EncryptionKey",
+                "display_name": "Encryption key:",
+                "type": "generated",
+                "secret": true,
+                "help_text": "Encrypts the tix tokens the plugin stores. Regenerating it disconnects everyone.",
+                "regenerate_help_text": "Everyone has to run /tix connect again.",
+                "default": null
+            },
+            {
+                "key": "WebhookSecret",
+                "display_name": "Webhook secret:",
+                "type": "generated",
+                "secret": true,
+                "help_text": "tix signs the webhooks it sends the plugin with this secret.",
+                "regenerate_help_text": "Run /tix webhook setup again afterwards.",
+                "default": null
+            },
+            {
+                "key": "UnfurlRefs",
+                "display_name": "Show task cards:",
+                "type": "bool",
+                "help_text": "Turn task references such as infra-42 in messages into live task cards.",
+                "default": true
+            }
+        ]
+    },
+    "version": "0.1.0"
+}

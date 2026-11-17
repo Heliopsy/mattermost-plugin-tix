@@ -1,0 +1,6 @@
+mattermost-plugin-tix
+Copyright (C) 2026 Heliopsy. Licensed under the GNU Affero General Public License v3.0 (see LICENSE).
+
+The build tooling and plugin skeleton derive from mattermost-plugin-starter-template,
+Copyright (c) 2017-present Mattermost, Inc., licensed under the Apache License 2.0
+(https://github.com/mattermost/mattermost-plugin-starter-template).
