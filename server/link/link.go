@@ -127,6 +127,20 @@ func (f *Feature) linkWithToken(userID, token string) (string, error) {
 
 var errNoMatch = errors.New("no tix account matches your email")
 
+// ErrNoMatch is returned by ConnectByEmail when no tix person has the user's verified email.
+var ErrNoMatch = errNoMatch
+
+// ErrNoAdminToken is returned by ConnectByEmail when no admin token is configured to issue tokens with.
+var ErrNoAdminToken = errors.New("connecting by email needs the admin token; run `/tix connect` with a token made in tix")
+
+// ConnectByEmail runs the email-matched connect of `/tix connect` for the webapp and returns its message.
+func (f *Feature) ConnectByEmail(userID string) (string, error) {
+	if f.a.Config().AdminToken == "" {
+		return "", ErrNoAdminToken
+	}
+	return f.linkByEmail(userID)
+}
+
 // linkByEmail finds the tix person with the user's verified email and issues them a token.
 func (f *Feature) linkByEmail(userID string) (string, error) {
 	u, appErr := f.a.API.GetUser(userID)
