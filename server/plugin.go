@@ -63,7 +63,8 @@ func (p *Plugin) OnActivate() error {
 	p.http = api.NewHandler(p.API)
 	p.commands = command.NewRegistry(p.app)
 	p.cards = cards.New(p.app)
-	for _, f := range []feature{link.New(p.app), tasks.New(p.app), p.cards, notify.New(p.app, p.cards), webapi.New(p.app)} {
+	linker := link.New(p.app)
+	for _, f := range []feature{linker, tasks.New(p.app), p.cards, notify.New(p.app, p.cards), webapi.New(p.app, linker.ConnectByEmail)} {
 		p.commands.Add(f.Commands()...)
 		f.Routes(p.http)
 	}
