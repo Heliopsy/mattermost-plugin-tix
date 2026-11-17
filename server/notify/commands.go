@@ -19,10 +19,6 @@ import (
 	"github.com/heliopsy/mattermost-plugin-tix/server/tix"
 )
 
-// privacyNote goes with every new subscription: whoever subscribes publishes that activity here.
-const privacyNote = "Everyone who can read this channel will see the titles and comment text of those tasks, " +
-	"including people who cannot open the project in tix. You chose to publish it here; `/tix unsubscribe` stops it."
-
 // audit starts an audit record for a command; the caller sets Success and the record is logged on return.
 func (f *Feature) audit(c *command.Ctx, event string) (*model.AuditRecord, func()) {
 	pc := c.Plugin
@@ -34,11 +30,12 @@ func (f *Feature) audit(c *command.Ctx, event string) (*model.AuditRecord, func(
 	return rec, func() { f.a.API.LogAuditRec(rec) }
 }
 
-// canManageChannel is the one check behind subscribe and unsubscribe: the caller may change the channel's settings.
+// canManageChannel is the one check behind subscribe and unsubscribe: the caller may change the
+// channel's settings. The second result is the message id of the refusal.
 func (f *Feature) canManageChannel(userID, channelID string) (bool, string) {
 	ch, appErr := f.a.API.GetChannel(channelID)
 	if appErr != nil {
-		return false, "Could not read this channel."
+		return false, i18n.M("notify.channel.read_failed")
 	}
 	var perm *model.Permission
 	switch ch.Type {
@@ -47,10 +44,10 @@ func (f *Feature) canManageChannel(userID, channelID string) (bool, string) {
 	case model.ChannelTypePrivate:
 		perm = model.PermissionManagePrivateChannelProperties
 	default:
-		return false, "tix feeds go into public or private channels, not direct or group messages."
+		return false, i18n.M("notify.channel.wrong_type")
 	}
 	if !f.a.API.HasPermissionToChannel(userID, channelID, perm) {
-		return false, "Only people who can manage this channel's settings can change its tix feeds."
+		return false, i18n.M("notify.channel.not_allowed")
 	}
 	return true, ""
 }
@@ -68,7 +65,7 @@ func parseKinds(args []string) ([]string, error) {
 			}
 			k, ok := kindAliases[part]
 			if !ok {
-				return nil, fmt.Errorf("unknown event `%s`; use %s", part, strings.Join(allKinds, ", "))
+				return nil, i18n.NewError("notify.subscribe.unknown_event", "event", part, "events", strings.Join(allKinds, ", "))
 			}
 			if !slices.Contains(out, k) {
 				out = append(out, k)
@@ -131,31 +128,32 @@ func feedFormat(s store.Subscription) string {
 
 func (f *Feature) subscribe(c *command.Ctx, args []string) *model.CommandResponse {
 	if len(args) == 0 {
-		return command.Ephemeral("Usage: `/tix subscribe <project|all> [" + strings.Join(allKinds, " ") + "] [--detail compact|detailed|card] [--comments full|excerpt|none] [--people names|mentions]`. Default: " + strings.Join(defaultKinds, ", ") + ".")
+		return command.Ephemeral(c.L().T("notify.subscribe.usage", "events", strings.Join(allKinds, " "), "defaults", strings.Join(defaultKinds, ", ")))
 	}
 	userID, channelID := c.Args.UserId, c.Args.ChannelId
 	rec, done := f.audit(c, "tixSubscribe")
 	defer done()
+	l := c.L()
 	if ok, msg := f.canManageChannel(userID, channelID); !ok {
-		return command.Ephemeral(msg)
+		return command.Ephemeral(l.T(msg))
 	}
 	opts, kindArgs, err := parseFeedOptions(args[1:])
 	if err != nil {
-		return command.Ephemeral(app.ErrText(app.EN, err))
+		return command.Ephemeral(app.ErrText(l, err))
 	}
 	ks, err := parseKinds(kindArgs)
 	if err != nil {
-		return command.Ephemeral(err.Error())
+		return command.Ephemeral(app.ErrText(l, err))
 	}
-	project, label := "", "every project"
+	project, label := "", l.T("notify.subscribe.every_project")
 	if strings.EqualFold(args[0], "all") {
 		if !f.a.API.HasPermissionTo(userID, model.PermissionManageSystem) {
-			return command.Ephemeral("Only system admins can subscribe a channel to every project. Name one project you can see.")
+			return command.Ephemeral(l.T("notify.subscribe.all_admins_only"))
 		}
 	} else {
 		p, perr := f.findProject(userID, args[0])
 		if perr != nil {
-			return command.Ephemeral(app.ErrText(app.EN, perr))
+			return command.Ephemeral(app.ErrText(l, perr))
 		}
 		project, label = p.Key, fmt.Sprintf("**%s** (%s)", p.Key, p.Name)
 	}
@@ -170,16 +168,16 @@ func (f *Feature) subscribe(c *command.Ctx, args []string) *model.CommandRespons
 	})
 	if err != nil {
 		f.a.API.LogError("tix: saving a subscription", "err", err.Error())
-		return command.Ephemeral("Could not save the subscription.")
+		return command.Ephemeral(l.T("notify.subscribe.save_failed"))
 	}
 	rec.AddMeta("project", project)
 	rec.Success()
-	msg := fmt.Sprintf("This channel now gets tix activity of %s: %s.\n%s", label, strings.Join(ks, ", "), privacyNote)
+	msg := l.T("notify.subscribe.done", "project", label, "events", strings.Join(ks, ", ")) + "\n" + l.T("notify.subscribe.privacy")
 	if format := feedFormat(store.Subscription{Detail: opts.Detail, Comments: opts.Comments, People: opts.People}); format != "" {
-		msg += "\nFormat: `" + format + "`."
+		msg += "\n" + l.T("notify.subscribe.format", "format", format)
 	}
 	if f.a.Config().WebhookSecret == "" {
-		msg += "\nNothing arrives until a system admin runs `/tix webhook setup`."
+		msg += "\n" + l.T("notify.subscribe.no_webhook")
 	}
 	return command.Ephemeral(msg)
 }
@@ -195,18 +193,18 @@ func (f *Feature) findProject(userID, key string) (*tix.Project, error) {
 			return &ps[i], nil
 		}
 	}
-	return nil, fmt.Errorf("no project `%s` among the projects you can see in tix", key)
+	return nil, i18n.NewError("notify.subscribe.no_project", "project", key)
 }
 
 func (f *Feature) unsubscribe(c *command.Ctx, args []string) *model.CommandResponse {
 	if len(args) == 0 {
-		return command.Ephemeral("Usage: `/tix unsubscribe <project|all>`")
+		return command.Ephemeral(c.L().T("notify.unsubscribe.usage"))
 	}
 	userID, channelID := c.Args.UserId, c.Args.ChannelId
 	rec, done := f.audit(c, "tixUnsubscribe")
 	defer done()
 	if ok, msg := f.canManageChannel(userID, channelID); !ok {
-		return command.Ephemeral(msg)
+		return command.Ephemeral(c.L().T(msg))
 	}
 	project := args[0]
 	if strings.EqualFold(project, "all") {
@@ -225,24 +223,25 @@ func (f *Feature) unsubscribe(c *command.Ctx, args []string) *model.CommandRespo
 	})
 	if err != nil {
 		f.a.API.LogError("tix: saving subscriptions", "err", err.Error())
-		return command.Ephemeral("Could not save the change.")
+		return command.Ephemeral(c.L().T("notify.unsubscribe.save_failed"))
 	}
 	rec.AddMeta("project", project)
 	rec.Success()
 	if removed == 0 {
-		return command.Ephemeral("This channel had no such tix feed. `/tix subscriptions` lists them.")
+		return command.Ephemeral(c.L().T("notify.unsubscribe.none"))
 	}
-	return command.Ephemeral("Stopped that tix feed in this channel.")
+	return command.Ephemeral(c.L().T("notify.unsubscribe.done"))
 }
 
 func (f *Feature) subscriptions(c *command.Ctx, args []string) *model.CommandResponse {
+	l := c.L()
 	all := len(args) > 0 && strings.EqualFold(args[0], "all")
 	if all && !f.a.API.HasPermissionTo(c.Args.UserId, model.PermissionManageSystem) {
-		return command.Ephemeral("Only system admins can list the feeds of every channel.")
+		return command.Ephemeral(l.T("notify.subscriptions.all_admins_only"))
 	}
 	subs, err := f.a.Store.Subscriptions()
 	if err != nil {
-		return command.Ephemeral("Could not read the subscriptions.")
+		return command.Ephemeral(l.T("notify.subscriptions.read_failed"))
 	}
 	var b strings.Builder
 	n := 0
@@ -252,9 +251,11 @@ func (f *Feature) subscriptions(c *command.Ctx, args []string) *model.CommandRes
 		}
 		if n == 0 {
 			if all {
-				b.WriteString("| Channel | Project | Events | Format | By |\n| --- | --- | --- | --- | --- |\n")
+				fmt.Fprintf(&b, "| %s | %s | %s | %s | %s |\n| --- | --- | --- | --- | --- |\n", l.T("notify.subscriptions.channel"),
+					l.T("notify.subscriptions.project"), l.T("notify.subscriptions.events"), l.T("notify.subscriptions.format"), l.T("notify.subscriptions.by"))
 			} else {
-				b.WriteString("| Project | Events | Format | By |\n| --- | --- | --- | --- |\n")
+				fmt.Fprintf(&b, "| %s | %s | %s | %s |\n| --- | --- | --- | --- |\n", l.T("notify.subscriptions.project"),
+					l.T("notify.subscriptions.events"), l.T("notify.subscriptions.format"), l.T("notify.subscriptions.by"))
 			}
 		}
 		n++
@@ -262,7 +263,7 @@ func (f *Feature) subscriptions(c *command.Ctx, args []string) *model.CommandRes
 		if project == "" {
 			project = "all"
 		}
-		format := "default"
+		format := l.T("notify.subscriptions.default_format")
 		if ff := feedFormat(s); ff != "" {
 			format = "`" + ff + "`"
 		}
@@ -282,21 +283,20 @@ func (f *Feature) subscriptions(c *command.Ctx, args []string) *model.CommandRes
 	}
 	if n == 0 {
 		if all {
-			return command.Ephemeral("No channel has a tix feed.")
+			return command.Ephemeral(l.T("notify.subscriptions.none_anywhere"))
 		}
-		return command.Ephemeral("This channel has no tix feeds. `/tix subscribe <project>` adds one.")
+		return command.Ephemeral(l.T("notify.subscriptions.none"))
 	}
 	return command.Ephemeral(b.String())
 }
 
 func (f *Feature) notifications(c *command.Ctx, args []string) *model.CommandResponse {
-	userID := c.Args.UserId
+	userID, l := c.Args.UserId, c.L()
 	if len(args) == 0 {
-		state := "on"
 		if f.dmsOff(userID) {
-			state = "off"
+			return command.Ephemeral(l.T("notify.notifications.state_off"))
 		}
-		return command.Ephemeral("Your personal tix DMs are **" + state + "**. `/tix notifications on|off` changes that.")
+		return command.Ephemeral(l.T("notify.notifications.state_on"))
 	}
 	var p prefs
 	switch strings.ToLower(args[0]) {
@@ -304,7 +304,7 @@ func (f *Feature) notifications(c *command.Ctx, args []string) *model.CommandRes
 	case "off":
 		p.DMsOff = true
 	default:
-		return command.Ephemeral("Usage: `/tix notifications on|off`")
+		return command.Ephemeral(l.T("notify.notifications.usage"))
 	}
 	var v any = p
 	if !p.DMsOff {
@@ -312,12 +312,12 @@ func (f *Feature) notifications(c *command.Ctx, args []string) *model.CommandRes
 	}
 	if _, err := f.a.Store.Set("notify", "prefs_"+userID, v); err != nil {
 		f.a.API.LogError("tix: saving notification prefs", "err", err.Error())
-		return command.Ephemeral("Could not save that.")
+		return command.Ephemeral(l.T("notify.notifications.save_failed"))
 	}
 	if p.DMsOff {
-		return command.Ephemeral("Personal tix DMs are off. Channel feeds are not affected.")
+		return command.Ephemeral(l.T("notify.notifications.off"))
 	}
-	return command.Ephemeral("Personal tix DMs are on: you hear about tasks assigned to you, comments on tasks you are assigned or created, your tasks being closed, and mentions.")
+	return command.Ephemeral(l.T("notify.notifications.on"))
 }
 
 // endpointRecord remembers which tix webhook is the plugin's.
@@ -331,23 +331,24 @@ func (f *Feature) webhookCmd(c *command.Ctx, args []string) *model.CommandRespon
 	if len(args) > 0 {
 		sub = strings.ToLower(args[0])
 	}
+	l := c.L()
 	cfg := f.a.Config()
 	if cfg.AdminToken == "" {
-		return command.Ephemeral("Set the admin token (with `webhook:admin`) in System Console > Plugins > tix first.")
+		return command.Ephemeral(l.T("notify.webhook.no_admin_token"))
 	}
 	admin, err := f.a.NewTix(cfg.AdminToken)
 	if err != nil {
-		return command.Ephemeral(app.ErrText(app.EN, err))
+		return command.Ephemeral(app.ErrText(l, err))
 	}
 	switch sub {
 	case "setup":
 		return f.webhookSetup(c, admin)
 	case "status":
-		return f.webhookStatus(admin)
+		return f.webhookStatus(l, admin)
 	case "remove":
 		return f.webhookRemove(c, admin)
 	}
-	return command.Ephemeral("Usage: `/tix webhook setup|status|remove`")
+	return command.Ephemeral(l.T("notify.webhook.usage"))
 }
 
 // findEndpoint returns the plugin's endpoint in tix: the remembered id, else one with our URL.
@@ -375,15 +376,16 @@ func (f *Feature) findEndpoint(admin *tix.Client) (*tix.Webhook, error) {
 }
 
 func (f *Feature) webhookSetup(c *command.Ctx, admin *tix.Client) *model.CommandResponse {
+	l := c.L()
 	rec, done := f.audit(c, "tixWebhookSetup")
 	defer done()
 	secret := f.a.Config().WebhookSecret
 	if secret == "" {
-		return command.Ephemeral("Generate the webhook secret in System Console > Plugins > tix first.")
+		return command.Ephemeral(l.T("notify.webhook.no_secret"))
 	}
 	existing, err := f.findEndpoint(admin)
 	if err != nil {
-		return command.Ephemeral(app.ErrText(app.EN, err))
+		return command.Ephemeral(app.ErrText(l, err))
 	}
 	in := tix.WebhookInput{URL: f.a.PluginURL("/hooks/webhook"), Secret: secret, EventTypes: webhookEventTypes, Active: true}
 	if existing != nil {
@@ -393,48 +395,49 @@ func (f *Feature) webhookSetup(c *command.Ctx, admin *tix.Client) *model.Command
 	defer cancel()
 	hook, err := admin.PutWebhook(ctx, in)
 	if err != nil {
-		return command.Ephemeral("tix refused the webhook: " + app.ErrText(app.EN, err))
+		return command.Ephemeral(l.T("notify.webhook.refused", "error", app.ErrText(l, err)))
 	}
 	if _, err := f.a.Store.Set("notify", "endpoint", endpointRecord{ID: hook.ID, URL: hook.URL}); err != nil {
 		f.a.API.LogWarn("tix: remembering the webhook id", "err", err.Error())
 	}
 	rec.Success()
-	verb := "Registered"
+	id := i18n.M("notify.webhook.registered")
 	if existing != nil {
-		verb = "Updated"
+		id = i18n.M("notify.webhook.updated")
 	}
-	return command.Ephemeral(fmt.Sprintf("%s the tix webhook `%s` → %s for %s.", verb, hook.ID, hook.URL, strings.Join(hook.EventTypes, ", ")))
+	return command.Ephemeral(l.T(id, "id", hook.ID, "url", hook.URL, "events", strings.Join(hook.EventTypes, ", ")))
 }
 
-func (f *Feature) webhookStatus(admin *tix.Client) *model.CommandResponse {
+func (f *Feature) webhookStatus(l *i18n.Localizer, admin *tix.Client) *model.CommandResponse {
 	hook, err := f.findEndpoint(admin)
 	if err != nil {
-		return command.Ephemeral(app.ErrText(app.EN, err))
+		return command.Ephemeral(app.ErrText(l, err))
 	}
 	if hook == nil {
-		return command.Ephemeral("No tix webhook points at this plugin. `/tix webhook setup` registers one.")
+		return command.Ephemeral(l.T("notify.webhook.none"))
 	}
 	var b strings.Builder
-	state := "active"
+	state := l.T("notify.webhook.active")
 	if !hook.Active {
-		state = "inactive"
+		state = l.T("notify.webhook.inactive")
 	}
-	fmt.Fprintf(&b, "tix webhook `%s` (%s) → %s\nEvents: %s\n", hook.ID, state, hook.URL, strings.Join(hook.EventTypes, ", "))
+	b.WriteString(l.T("notify.webhook.status", "id", hook.ID, "state", state, "url", hook.URL, "events", strings.Join(hook.EventTypes, ", ")) + "\n")
 	if f.a.Config().WebhookSecret == "" {
-		b.WriteString("**The webhook secret is not set, so every delivery is rejected.**\n")
+		b.WriteString("**" + l.T("notify.webhook.secret_unset") + "**\n")
 	}
 	ctx, cancel := app.Ctx()
 	defer cancel()
 	ds, err := admin.ListWebhookDeliveries(ctx, hook.ID, 10)
 	if err != nil {
-		b.WriteString("Could not read the delivery log: " + app.ErrText(app.EN, err))
+		b.WriteString(l.T("notify.webhook.log_failed", "error", app.ErrText(l, err)))
 		return command.Ephemeral(b.String())
 	}
 	if len(ds) == 0 {
-		b.WriteString("No deliveries yet.")
+		b.WriteString(l.T("notify.webhook.no_deliveries"))
 		return command.Ephemeral(b.String())
 	}
-	b.WriteString("\n| Delivery | Event | Status | Attempts | HTTP | Queued |\n| --- | --- | --- | --- | --- | --- |\n")
+	fmt.Fprintf(&b, "\n| %s | %s | %s | %s | HTTP | %s |\n| --- | --- | --- | --- | --- | --- |\n", l.T("notify.webhook.col_delivery"),
+		l.T("notify.webhook.col_event"), l.T("notify.webhook.col_status"), l.T("notify.webhook.col_attempts"), l.T("notify.webhook.col_queued"))
 	for _, d := range ds {
 		status := d.Status
 		if d.LastError != "" {
@@ -450,21 +453,22 @@ func (f *Feature) webhookStatus(admin *tix.Client) *model.CommandResponse {
 }
 
 func (f *Feature) webhookRemove(c *command.Ctx, admin *tix.Client) *model.CommandResponse {
+	l := c.L()
 	rec, done := f.audit(c, "tixWebhookRemove")
 	defer done()
 	hook, err := f.findEndpoint(admin)
 	if err != nil {
-		return command.Ephemeral(app.ErrText(app.EN, err))
+		return command.Ephemeral(app.ErrText(l, err))
 	}
 	if hook == nil {
-		return command.Ephemeral("No tix webhook points at this plugin.")
+		return command.Ephemeral(l.T("notify.webhook.none_short"))
 	}
 	ctx, cancel := app.Ctx()
 	defer cancel()
 	if err := admin.DeleteWebhook(ctx, hook.ID); err != nil && !tix.IsStatus(err, 404) {
-		return command.Ephemeral(app.ErrText(app.EN, err))
+		return command.Ephemeral(app.ErrText(l, err))
 	}
 	_, _ = f.a.Store.Set("notify", "endpoint", nil)
 	rec.Success()
-	return command.Ephemeral(fmt.Sprintf("Removed the tix webhook `%s`. Channel feeds and DMs stop until `/tix webhook setup`.", hook.ID))
+	return command.Ephemeral(l.T("notify.webhook.removed", "id", hook.ID))
 }
