@@ -78,6 +78,9 @@ export type Me = {
     can_connect: boolean;
     actor?: Person;
     tenant_key?: string;
+
+    // default_project is the default project of the channel asked about, if it has one.
+    default_project?: string;
 };
 
 export type TaskFilter = {
