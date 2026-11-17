@@ -32,7 +32,7 @@ type Link struct {
 	// Minted is true when the plugin issued the token (and so may revoke it).
 	Minted     bool      `json:"minted"`
 	LinkedAt   time.Time `json:"linked_at"`
-	LastUsedAt time.Time `json:"last_used_at,omitempty"`
+	LastUsedAt time.Time `json:"last_used_at,omitzero"`
 }
 
 // Subscription posts tix events about one project (or all, when Project is "") into one channel.

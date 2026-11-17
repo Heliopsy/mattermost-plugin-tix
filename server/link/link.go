@@ -160,7 +160,7 @@ func (f *Feature) linkByEmail(userID string) (string, error) {
 	if match.Role == "viewer" {
 		scopes = tix.ViewerScopes
 	}
-	if old, err := f.a.Store.GetLink(userID); err == nil && old.Minted {
+	if old, gerr := f.a.Store.GetLink(userID); gerr == nil && old.Minted {
 		f.revoke(old)
 	}
 	name := fmt.Sprintf("mattermost-%s-%d", u.Username, time.Now().Unix())

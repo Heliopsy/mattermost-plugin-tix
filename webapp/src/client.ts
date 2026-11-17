@@ -29,4 +29,3 @@ export async function doFetch<T>(path: string, options: Options = {}): Promise<T
     return body as T;
 }
 
-const statusPath = (channelId: string) => `/channels/${encodeURIComponent(channelId)}/status`;
