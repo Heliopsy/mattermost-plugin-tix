@@ -19,6 +19,7 @@ import (
 	"github.com/heliopsy/mattermost-plugin-tix/server/notify"
 	"github.com/heliopsy/mattermost-plugin-tix/server/store"
 	"github.com/heliopsy/mattermost-plugin-tix/server/tasks"
+	"github.com/heliopsy/mattermost-plugin-tix/server/webapi"
 )
 
 // Plugin implements the interface expected by the Mattermost server.
@@ -62,7 +63,7 @@ func (p *Plugin) OnActivate() error {
 	p.http = api.NewHandler(p.API)
 	p.commands = command.NewRegistry(p.app)
 	p.cards = cards.New(p.app)
-	for _, f := range []feature{link.New(p.app), tasks.New(p.app), p.cards, notify.New(p.app, p.cards)} {
+	for _, f := range []feature{link.New(p.app), tasks.New(p.app), p.cards, notify.New(p.app, p.cards), webapi.New(p.app)} {
 		p.commands.Add(f.Commands()...)
 		f.Routes(p.http)
 	}
