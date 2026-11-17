@@ -9,6 +9,15 @@ To learn more about plugins, see [our plugin documentation](https://developers.m
 
 This template targets Mattermost Server 11.7 or later (`min_server_version` in `plugin.json`), the oldest supported ESR. The webapp builds against the React 18 that 11.7 ships and runs unchanged on React 19 in 12.0. It requires the Go version in `go.mod` and the Node version in `.nvmrc`. You can download and install nvm to manage your node versions by following the instructions [here](https://github.com/nvm-sh/nvm). Once you've setup the project simply run `nvm i` within the root folder to use the suggested version of node.
 
+## In the app
+
+- **tix sidebar.** The tix button in the channel header (or the App Bar) opens a sidebar. **Mine** lists your open tasks grouped by status; **Project** lets you pick a project and search it. Select a task to see its status, assignee, priority, tags, description and comments, move it along its workflow (a move that needs a comment asks for one), assign it to yourself, unassign it, change its priority or comment. **New task** opens the create dialog.
+- **Create from a message.** In a message's **...** menu, **Create tix task** opens a dialog with the message as the title and description and a link back to it. Pick the project, assignee (you by default) and priority. After creating, **Post link in thread** replies with the task reference, which turns into a task card.
+- **Create from anywhere.** The main menu has **Create tix task** too; its link goes into the current channel.
+- **Not connected yet?** The sidebar and dialog show a **Connect** button when the admin token is configured (it matches your verified email to your tix account), or tell you to run `/tix connect`.
+
+Everything happens as you in tix, through your own token; tix decides what you can see and change.
+
 ## Getting Started
 Use GitHub's template feature to make a copy of this repository by clicking the "Use this template" button.
 
