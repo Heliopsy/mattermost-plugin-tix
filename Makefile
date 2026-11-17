@@ -192,6 +192,7 @@ bundle:
 	./build/bin/manifest dist
 ifneq ($(wildcard $(ASSETS_DIR)/.),)
 	cp -r $(ASSETS_DIR) dist/$(PLUGIN_ID)/
+	find dist/$(PLUGIN_ID)/$(ASSETS_DIR) -name '*.go' -delete
 endif
 ifneq ($(HAS_PUBLIC),)
 	cp -r public dist/$(PLUGIN_ID)/
