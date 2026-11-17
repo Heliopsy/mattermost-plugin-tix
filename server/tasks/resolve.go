@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/heliopsy/mattermost-plugin-tix/server/i18n"
 	"github.com/heliopsy/mattermost-plugin-tix/server/tix"
 )
 
@@ -82,8 +83,9 @@ func (i intent) String() string {
 type goal struct {
 	in   intent
 	want func(tix.State) bool
-	// what names the goal for messages, e.g. "a done state".
-	what string
+	// whatID names the goal for messages, e.g. "a done state"; whatState is the state of a /tix move.
+	whatID    string
+	whatState string
 	// already tells whether the task is already where the intent leads; nil means want.
 	already func(tix.State) bool
 	// prefer is a state key picked first when several transitions fit.
@@ -96,10 +98,10 @@ func goalFor(wf *tix.Workflow, in intent, target string) (*goal, error) {
 	switch in {
 	case toStart:
 		g.want = func(s tix.State) bool { return category(wf, s) == catInProgress }
-		g.what = "an in-progress state"
+		g.whatID = i18n.M("tasks.goal.in_progress")
 	case toDone:
 		g.want = func(s tix.State) bool { return category(wf, s) == catDone }
-		g.what = "a done state"
+		g.whatID = i18n.M("tasks.goal.done")
 	case toClose:
 		hasCancelled := false
 		for _, s := range wf.Definition.States {
@@ -110,25 +112,28 @@ func goalFor(wf *tix.Workflow, in intent, target string) (*goal, error) {
 		g.already = func(s tix.State) bool { return s.Terminal }
 		if hasCancelled {
 			g.want = func(s tix.State) bool { return s.Terminal && category(wf, s) == catCancelled }
-			g.what = "a cancelled state"
+			g.whatID = i18n.M("tasks.goal.cancelled")
 		} else {
 			g.want = func(s tix.State) bool { return category(wf, s) == catDone }
-			g.what = "a done state (this workflow has no cancelled state)"
+			g.whatID = i18n.M("tasks.goal.done_no_cancelled")
 		}
 	case toReopen:
 		g.want = func(s tix.State) bool { return !s.Terminal }
-		g.what = "an open state"
+		g.whatID = i18n.M("tasks.goal.open")
 		g.prefer = wf.Definition.Initial
 	case toState:
 		s, ok := findState(wf, target)
 		if !ok {
-			return nil, fmt.Errorf("the workflow has no state `%s`. States: %s", target, stateList(wf, wf.Definition.States))
+			return nil, i18n.NewError("tasks.err.no_state", "state", target, "states", stateList(i18n.For(i18n.Fallback), wf, wf.Definition.States))
 		}
 		g.want = func(x tix.State) bool { return x.Key == s.Key }
-		g.what = "**" + labelOf(s) + "**"
+		g.whatID, g.whatState = i18n.M("tasks.goal.state"), labelOf(s)
 	}
 	return g, nil
 }
+
+// describe names the goal in language l.
+func (g *goal) describe(l *i18n.Localizer) string { return l.T(g.whatID, "state", g.whatState) }
 
 // findState matches a state by key or label, ignoring case, spaces, hyphens and underscores.
 func findState(wf *tix.Workflow, name string) (tix.State, bool) {
@@ -157,9 +162,9 @@ func labelOf(s tix.State) string {
 	return s.Key
 }
 
-func stateList(wf *tix.Workflow, states []tix.State) string {
+func stateList(l *i18n.Localizer, wf *tix.Workflow, states []tix.State) string {
 	if len(states) == 0 {
-		return "none"
+		return l.T("tasks.states.none")
 	}
 	out := make([]string, 0, len(states))
 	for _, s := range states {

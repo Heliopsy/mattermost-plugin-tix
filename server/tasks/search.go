@@ -4,13 +4,13 @@ package tasks
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net/url"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/heliopsy/mattermost-plugin-tix/server/i18n"
 	"github.com/heliopsy/mattermost-plugin-tix/server/render"
 	"github.com/heliopsy/mattermost-plugin-tix/server/tix"
 )
@@ -42,16 +42,17 @@ func parseSearch(args []string, isProject func(string) bool, resolve func(string
 	}
 	text := strings.TrimSpace(strings.Join(free, " "))
 	if text == "" {
-		return nil, errors.New("say what to look for: `/tix search <text> [project] [filters]`")
+		return nil, i18n.NewError("tasks.err.search_text")
 	}
 	q.Params.Set("q", text)
 	q.Params.Set("limit", strconv.Itoa(maxSearch))
-	q.Title = fmt.Sprintf("Tasks matching “%s”", excerpt(text, 80))
+	q.titleID, q.titleArgs = i18n.M("tasks.search.title"), []any{"text", excerpt(text, 80)}
 	if project != "" {
-		q.Title += " in " + strings.ToUpper(project)
+		q.titleID = i18n.M("tasks.search.title_project")
+		q.titleArgs = append(q.titleArgs, "project", strings.ToUpper(project))
 	}
 	if q.Open {
-		q.Title += " (open)"
+		q.desc = append(q.desc, i18n.M("tasks.search.desc_open"))
 	}
 	return q, nil
 }
@@ -81,11 +82,12 @@ func parseDue(args []string, isProject func(string) bool, resolve func(string) (
 	q.Params.Set("sort", "due_at")
 	q.Params.Set("direction", "asc")
 	q.Params.Set("limit", strconv.Itoa(maxSearch))
-	q.Title = "My tasks due today or overdue"
+	q.titleID = i18n.M("tasks.due.title")
 	return q, nil
 }
 
 // flat lists the tasks a query selects, in tix's order, each with its status and assignee.
+// empty is the message id of the reply when nothing matches.
 func (e *env) flat(cx context.Context, q *listQuery, empty string) (string, error) {
 	p := url.Values{}
 	for k, v := range q.Params {
@@ -112,22 +114,23 @@ func (e *env) flat(cx context.Context, q *listQuery, empty string) (string, erro
 			break
 		}
 	}
+	l := e.l()
 	if len(rows) == 0 {
-		return empty, nil
+		return l.T(empty), nil
 	}
 	var b strings.Builder
 	more := ""
 	if page.NextCursor != "" {
 		more = "+"
 	}
-	fmt.Fprintf(&b, "#### %s: %d%s", q.Title, len(rows), more)
+	fmt.Fprintf(&b, "#### %s: %d%s", q.Title(l), len(rows), more)
 	for i := range rows {
 		t := &rows[i]
 		wf, _, _ := e.workflowFor(t.ProjectID)
 		b.WriteString("\n- " + e.line(t, false) + " · " + label(wf, t.Status) + " · " + e.mention(t.AssigneeActorID))
 	}
 	if more != "" {
-		fmt.Fprintf(&b, "\n\nShowing the first %d. Narrow it with a project or a filter.", len(rows))
+		b.WriteString("\n\n" + l.N("tasks.flat.more", len(rows)))
 	}
 	return b.String(), nil
 }

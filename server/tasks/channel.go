@@ -3,15 +3,15 @@
 package tasks
 
 import (
-	"errors"
-	"fmt"
 	"strings"
 	"time"
 
 	"github.com/mattermost/mattermost/server/public/model"
 	"github.com/mattermost/mattermost/server/public/plugin"
 
+	"github.com/heliopsy/mattermost-plugin-tix/server/app"
 	"github.com/heliopsy/mattermost-plugin-tix/server/command"
+	"github.com/heliopsy/mattermost-plugin-tix/server/i18n"
 )
 
 // storeFeature namespaces the feature's records in the store (x_tasks_...).
@@ -78,38 +78,38 @@ func validProjectKey(k string) bool {
 // cmdChannel is /tix channel [project <key>|none].
 func (f *Feature) cmdChannel(c *command.Ctx, args []string) *model.CommandResponse {
 	if len(args) == 0 || (len(args) == 1 && strings.EqualFold(args[0], "project")) {
-		return command.Ephemeral(f.showChannel(c.Args.UserId, c.Args.ChannelId))
+		return command.Ephemeral(f.showChannel(c.L(), c.Args.UserId, c.Args.ChannelId))
 	}
 	if !strings.EqualFold(args[0], "project") || len(args) != 2 {
-		return command.Ephemeral("usage: `/tix channel` or `/tix channel project <key>|none`")
+		return command.Ephemeral(c.L().T("tasks.channel.usage"))
 	}
-	msg, err := f.setChannelProject(c.Plugin, c.Args.UserId, c.Args.ChannelId, args[1])
+	msg, err := f.setChannelProject(c.L(), c.Plugin, c.Args.UserId, c.Args.ChannelId, args[1])
 	if err != nil {
-		return command.Ephemeral(err.Error())
+		return command.Ephemeral(app.ErrText(c.L(), err))
 	}
 	return command.Ephemeral(msg)
 }
 
-func (f *Feature) showChannel(userID, channelID string) string {
+func (f *Feature) showChannel(l *i18n.Localizer, userID, channelID string) string {
 	p := f.ChannelProject(userID, channelID)
 	if p == "" {
-		return "This channel has no default tix project. A channel admin can set one with `/tix channel project <key>`."
+		return l.T("tasks.channel.none")
 	}
-	return fmt.Sprintf("Default tix project for this channel: **%s**. `/tix new <title>` and the %s reaction create tasks there.", strings.ToUpper(p), f.emojiText())
+	return l.T("tasks.channel.show", "project", strings.ToUpper(p), "emoji", f.emojiText())
 }
 
 // errNotChannelAdmin is the answer to someone who may not change the channel's settings.
-var errNotChannelAdmin = errors.New("only channel admins can change this channel's tix settings")
+var errNotChannelAdmin = i18n.NewError("tasks.err.not_channel_admin")
 
-// setChannelProject sets or clears (none) a channel's default project as userID.
-func (f *Feature) setChannelProject(pc *plugin.Context, userID, channelID, key string) (string, error) {
+// setChannelProject sets or clears (none) a channel's default project as userID and says so in l.
+func (f *Feature) setChannelProject(l *i18n.Localizer, pc *plugin.Context, userID, channelID, key string) (string, error) {
 	if pc == nil {
 		pc = &plugin.Context{}
 	}
 	rec := plugin.MakeAuditRecordWithContext("tixSetChannelProject", model.AuditStatusFail, pc, userID, "/tix channel project")
 	defer f.a.API.LogAuditRec(rec)
 	if !model.IsValidId(channelID) {
-		return "", errors.New("run this in a channel")
+		return "", i18n.NewError("tasks.err.not_in_channel")
 	}
 	model.AddEventParameterToAuditRec(rec, "channel_id", channelID)
 	if !f.canManageChannel(userID, channelID) {
@@ -119,14 +119,14 @@ func (f *Feature) setChannelProject(pc *plugin.Context, userID, channelID, key s
 	unset := strings.EqualFold(key, "none") || key == "-"
 	if !unset {
 		if !validProjectKey(key) {
-			return "", fmt.Errorf("`%s` is not a project key", excerpt(key, maxProjectKey))
+			return "", i18n.NewError("tasks.err.not_project_key", "key", excerpt(key, maxProjectKey))
 		}
 		e, err := f.envFor(userID)
 		if err != nil {
 			return "", err
 		}
 		if !e.isProject(key) {
-			return "", fmt.Errorf("you cannot see a tix project `%s`", key)
+			return "", i18n.NewError("tasks.err.project_hidden", "key", key)
 		}
 		key = strings.ToLower(key)
 		model.AddEventParameterToAuditRec(rec, "project", key)
@@ -136,11 +136,11 @@ func (f *Feature) setChannelProject(pc *plugin.Context, userID, channelID, key s
 		v = channelDefaults{Project: key, SetBy: userID, SetAt: time.Now().UTC()}
 	}
 	if _, err := f.a.Store.Set(storeFeature, channelKey(channelID), v); err != nil {
-		return "", errors.New("could not save the channel setting, try again")
+		return "", i18n.NewError("tasks.err.save_channel")
 	}
 	rec.Success()
 	if unset {
-		return "This channel no longer has a default tix project.", nil
+		return l.T("tasks.channel.cleared"), nil
 	}
-	return fmt.Sprintf("New tasks from this channel go to **%s** by default.", strings.ToUpper(key)), nil
+	return l.T("tasks.channel.set", "project", strings.ToUpper(key)), nil
 }
