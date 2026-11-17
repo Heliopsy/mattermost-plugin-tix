@@ -1,12 +1,15 @@
 # Digest and reminders
 
 Both are off until a connected person turns them on, and both come as DMs from the bot, read with that person's
-own tix token. Times follow the person's Mattermost time zone (automatic or manual).
+own tix token, in their Mattermost language. Times follow the person's Mattermost time zone (automatic or
+manual). A due date without a time of day (tix stores it as midnight UTC) is that whole calendar day wherever you
+are: it is due today on that day and overdue only once the day is over in your time zone.
 
 - `/tix digest on [HH:MM]` sends a daily summary at that time (default 09:00), Monday to Friday;
   `/tix digest days daily` includes weekends, `days mon-fri` goes back. It lists the open tasks assigned to you
   that are overdue, due today, newly assigned since the last digest, blocked or in progress (each task once, with
-  a link and a `P1`/`P2` marker for high priorities), then the count per status. With nothing to report it says
+  a link and a `P1`/`P2` marker for high priorities), then the count per status. An admin can pick and reorder
+the sections with **Digest sections**; a task then shows in the first listed section it fits. With nothing to report it says
   *All clear*; `/tix digest quiet on` skips those instead. `/tix digest now` sends it at once, `off` stops it and
   `status` shows the settings and the next run.
 - `/tix reminders on` sends a DM in the morning (at your digest time, 09:00 without one) for each task assigned

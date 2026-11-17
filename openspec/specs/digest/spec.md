@@ -67,6 +67,11 @@ could not be sent within three hours of its time instead of sending it late.
 The digest SHALL list, as links to tix with the reference, title and a marker for priorities 1 and 2, the open
 tasks assigned to the person that are overdue, due today, newly assigned since the previous digest, blocked or in
 progress, each task in the first of those sections that applies, followed by the number of open tasks per status.
+The DigestSections setting SHALL choose the sections and their order (overdue, due_today, new, blocked,
+in_progress, counts; all by default); a task SHALL be listed in the first listed section it fits, so leaving a
+section out moves its tasks to the next listed one they fit. Unknown section names SHALL be ignored with a log
+line. The digest SHALL be written in the person's Mattermost language, with dates in the DateFormat setting and
+their time zone.
 Tasks in a terminal, done or cancelled state SHALL be left out. With nothing in any section the digest SHALL read
 "All clear", unless the person chose `/tix digest quiet on`, in which case it SHALL NOT be sent.
 
@@ -74,6 +79,18 @@ Tasks in a terminal, done or cancelled state SHALL be left out. With nothing in 
 
 - **WHEN** one assigned task's due time has passed and another falls due before local midnight
 - **THEN** the first is listed under Overdue and the second under Due today
+
+#### Scenario: Bare due date
+
+- **WHEN** a task's due date has no time of day (tix stores it as midnight UTC) and it is that day in the
+  person's time zone
+- **THEN** it is listed under Due today, not Overdue, until that day is over in their time zone
+
+#### Scenario: Sections reordered
+
+- **WHEN** DigestSections is `in_progress, overdue`
+- **THEN** the digest lists In progress first, then Overdue for the overdue tasks that are not in progress, and no
+  per-status counts
 
 #### Scenario: Newly assigned
 
@@ -88,7 +105,8 @@ Tasks in a terminal, done or cancelled state SHALL be left out. With nothing in 
 ### Requirement: Due reminders
 
 With reminders on, the plugin SHALL DM the person once on the morning of a due day about each assigned open task
-due that day, and once when an assigned open task becomes overdue, checking between 08:00 and 21:00 local time
+due that day, and once when an assigned open task becomes overdue (a bare due date once its day is over in the
+person's time zone, a due time once it has passed), checking between 08:00 and 21:00 local time
 for tasks due within the last seven days. It SHALL NOT send the same reminder twice for the same task, kind and
 due date, recording each sent reminder in a KV record that outlives the window in which it could be sent again.
 On a day the person gets a digest, the morning reminders SHALL be part of the digest instead of a separate DM.

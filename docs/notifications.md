@@ -28,7 +28,7 @@ already handled, so tix's retries never post twice.
 
 | Command | What it does |
 | --- | --- |
-| `/tix subscribe <project> [events...]` | Post a project's activity in this channel |
+| `/tix subscribe <project> [events...] [options]` | Post a project's activity in this channel |
 | `/tix subscribe all [events...]` | Every project (system admins only) |
 | `/tix unsubscribe <project\|all>` | Stop a feed |
 | `/tix subscriptions [all]` | This channel's feeds; `all` lists every channel's (system admins) |
@@ -38,6 +38,20 @@ done or cancelled state; `closed` works too) and `deleted`. Without events a fee
 `transitioned` and `commented`. Posts come from the tix bot, one line each, for example
 `**alice** moved [infra-42 Fix backups](...) **To do → Doing**`. Feed posts name people without @-mentioning
 them, so nobody is pinged by a feed.
+
+How a feed looks follows three System Console settings (see [Setup](setup.md#configure)), which each feed can
+override when it is created:
+
+| Option | Values | Default setting |
+| --- | --- | --- |
+| `--detail` | `compact` one line; `detailed` adds the assignee, priority and due date; `card` posts each event as a small card | **Channel feed detail**: compact |
+| `--comments` | `full` the whole comment; `excerpt` its first 200 characters on one line; `none` only "commented" | **Comment text**: excerpt |
+| `--people` | `names` no notification; `mentions` @-mentions connected people, which notifies them | **People in feeds**: names |
+
+For example `/tix subscribe infra created done --detail card --comments none` or `--people=mentions`. Running
+`/tix subscribe` again for the same project replaces the feed, options included; a feed without options follows
+the settings, also when they change later. `/tix subscriptions` shows each feed's options. Feed posts are in the
+server's default language, with dates in the time zone of whoever set the feed up.
 
 Only people who can manage the channel's settings (channel admins, or anyone with the manage public/private
 channel properties permission) can add or remove its feeds, and they must be connected to tix and able to see
@@ -55,5 +69,6 @@ Connected people get a DM from the bot when:
 - they are @mentioned (by their tix handle) in a comment or a new task's description, and their own tix token can
   read the task.
 
-Nobody is told about their own actions, and each event gives a person at most one DM. `/tix notifications off`
+Nobody is told about their own actions, and each event gives a person at most one DM. DMs are in the recipient's
+Mattermost language and quote comments per the **Comment text** setting. `/tix notifications off`
 turns these DMs off (`on` turns them back on); channel feeds are not affected.

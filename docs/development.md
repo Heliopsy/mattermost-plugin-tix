@@ -39,6 +39,38 @@ per scenario and a summary. It always removes its containers and volume, also on
 deletes the images it pulled unless `E2E_KEEP=1`. `E2E_TIX_IMAGE` and `E2E_MM_IMAGE` pick other versions. The
 scenarios are in `e2e/scenarios.py`; the `e2e` workflow runs them on pull requests.
 
+## Strings and languages
+
+Every user-facing text has a message id. The server's catalogs are `assets/i18n/en.json` and `bg.json`
+(embedded into the binary by `assets/assets.go`, package `server/i18n`); the webapp's are `webapp/i18n/en.json`
+and `bg.json` (react-intl).
+
+To add a server string, pick an id `<package>.<area>.<name>`, add it to both server catalogs (keep them sorted)
+and render it with the reader's localizer:
+
+```go
+c.L().T("cards.sync.is_on")                     // a command reply, in the caller's language
+f.a.Locale(userID).T(...)                        // an ephemeral or DM, in that person's language
+f.a.ServerLocale().T(...)                        // a channel post, in the server's default language
+l.N("digest.more", n)                            // a count: {"one": "...", "other": "..."}, {count} is n
+i18n.NewError("tasks.err.no_title")              // an error, rendered by app.ErrText(l, err)
+```
+
+Placeholders are `{name}`, filled from name, value pairs; there is no template language. An id used through a
+table or variable is wrapped in `i18n.M("...")` so the catalog test finds it. In the webapp use
+`<FormattedMessage id=... defaultMessage=.../>` (or `useIntl().formatMessage` for string props) and add the
+text to both webapp catalogs. Command names, option keywords and filter syntax stay English; workflow state
+labels come from tix untranslated.
+
+`go test ./server/i18n` fails when code uses an id `en.json` lacks, when `bg.json` lacks an id or its placeholders
+or plural forms differ, and warns about ids no code uses; `webapp/src/i18n.test.ts` does the same for the
+webapp and checks each `defaultMessage` against `en.json`.
+
+To add a language, copy both `en.json` files to `<code>.json` (the Mattermost locale, such as `de`), translate
+them, and add the code to `pickMessages` in `webapp/src/i18n.ts`. The server picks it up from the file name; if
+the language has plural forms other than one and other, add its CLDR rule to `pluralOne` in
+`server/i18n/i18n.go` (and use a fitting form set in the catalog).
+
 ## Trying it on a local Mattermost
 
 With local mode on (`ServiceSettings.EnableLocalMode`), `make deploy` installs the bundle through the local
@@ -52,7 +84,9 @@ on change.
 | --- | --- |
 | `server/tix` | The tix API client. It marshals and nothing else; tix decides the rules. |
 | `server/store` | Every KV record: account links (tokens encrypted), subscriptions, the card index, feature records. |
-| `server/app` | What features share: a tix client per person, cached projects, workflows and actors, DMs. |
+| `server/app` | What features share: a tix client per person, cached projects, workflows and actors, DMs, each person's language and time zone. |
+| `server/i18n`, `assets/i18n` | The translator and the server's message catalogs. |
+| `server/render` | The formatting rules every feature shares: dates, due dates, comments, people, card fields, digest sections. |
 | `server/command`, `server/api` | The `/tix` registry and the HTTP router (`/api/v1` for the webapp, `/hooks` for tix). |
 | `server/link` | Connecting accounts. |
 | `server/tasks` | Task commands, channel defaults, the create reaction, search. |

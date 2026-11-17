@@ -66,9 +66,9 @@ the plugin handles, updating the plugin's existing endpoint instead of adding a 
 A user who can manage a public or private channel's properties, is connected to tix and can see a project SHALL
 be able to subscribe that channel to the project's activity with `/tix subscribe <project> [events...]`, choosing
 among created, transitioned, assigned, commented, done and deleted, with created, transitioned and commented as
-the default. Subscribing a channel to every project SHALL require the manage system permission. The bot SHALL post
-one compact line per matching event, naming people without @-mentioning them and showing state labels for
-transitions.
+the default. Subscribing a channel to every project SHALL require the manage system permission. With the default
+settings the bot SHALL post one compact line per matching event, naming people without @-mentioning them and
+showing state labels for transitions.
 
 #### Scenario: Subscribe with default events
 
@@ -91,13 +91,49 @@ transitions.
 - **WHEN** a channel subscribed only to done sees a task moved into a done or cancelled state
 - **THEN** it gets the transition post, and no post for other transitions
 
+### Requirement: Feed formatting
+
+Feed posts SHALL follow the FeedDetail (compact, detailed, card), CommentText (full, excerpt, none) and
+FeedPeople (names, mentions) settings, defaulting to compact, excerpt and names. Detailed SHALL add a line with
+the task's assignee, priority and due date when tix told the plugin about the task; card SHALL post the event as
+a message attachment coloured by the task's state category, with those facts as fields. Excerpt SHALL keep the
+first 200 characters of a comment on one line, cut at a word and marked with "…"; full SHALL quote the whole
+comment (capped at 4000 bytes); none SHALL only say that someone commented. Mentions SHALL @-mention connected
+people, which notifies them. `/tix subscribe <project> [events] [--detail ...] [--comments ...] [--people ...]`
+SHALL store those choices on the subscription, overriding the settings for that feed only; a subscription saved
+without them SHALL follow the settings, and `/tix subscriptions` SHALL show each feed's overrides. When several
+subscriptions of a channel match an event, the first stored one SHALL decide the post's format. Feed posts SHALL
+be written in the server's default language and dated in the time zone of the person who set the feed up.
+
+#### Scenario: Card feed
+
+- **WHEN** a channel subscribed with `/tix subscribe infra --detail card` sees infra-42 moved to Doing
+- **THEN** it gets a post with one attachment whose text is the transition line and whose fields are the
+  assignee, priority and due date
+
+#### Scenario: Comments left out
+
+- **WHEN** the CommentText setting is none and someone comments on a task of a subscribed project
+- **THEN** the feed post says that they commented, without the comment text
+
+#### Scenario: Old subscription
+
+- **WHEN** a subscription stored before these options existed matches an event
+- **THEN** its post follows the System Console settings
+
+#### Scenario: Bad option
+
+- **WHEN** someone runs `/tix subscribe infra --detail huge`
+- **THEN** the reply names the valid values and no subscription is stored
+
 ### Requirement: Personal notifications
 
 The bot SHALL DM a connected person when a task is assigned to them, when someone comments on a task they are
 assigned to or created, when a task they created is moved to a done or cancelled state, and when they are
 @mentioned by tix handle in a comment or a new task's description and their own tix token can read the task.
 It SHALL NOT DM a person about their own action, SHALL send at most one DM per person per event, and SHALL send
-none to a person who turned notifications off with `/tix notifications off`.
+none to a person who turned notifications off with `/tix notifications off`. A DM SHALL be written in the
+recipient's Mattermost language and SHALL quote a comment per the CommentText setting.
 
 #### Scenario: Assigned
 
@@ -109,6 +145,11 @@ none to a person who turned notifications off with `/tix notifications off`.
 - **WHEN** carol connected by pasting a tix token and alice writes `@carol` in a comment on a task carol can read
 - **THEN** carol gets a DM saying alice mentioned her, because the link keeps carol's own tix handle, not the
   token's name
+
+#### Scenario: Bulgarian recipient
+
+- **WHEN** alice assigns a task to bob and bob's Mattermost language is Bulgarian
+- **THEN** bob's DM reads "**@alice** ти възложи ..." while the channel feed stays in the server's language
 
 #### Scenario: Own action
 
