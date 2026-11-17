@@ -57,10 +57,6 @@ type Config struct {
 // ErrNotLinked is returned when the acting user has not run /tix connect.
 var ErrNotLinked = i18n.NewError("app.err.not_linked")
 
-// EN renders in English. It marks text still waiting for the reader's language; nothing uses
-// it once every feature passes its reader's localizer.
-var EN = i18n.For(i18n.Fallback)
-
 // errNoURL is returned while the tix server URL is not configured.
 var errNoURL = i18n.NewError("app.err.no_url")
 

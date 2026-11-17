@@ -15,6 +15,7 @@ import (
 
 	"github.com/heliopsy/mattermost-plugin-tix/server/app"
 	"github.com/heliopsy/mattermost-plugin-tix/server/command"
+	"github.com/heliopsy/mattermost-plugin-tix/server/i18n"
 	"github.com/heliopsy/mattermost-plugin-tix/server/store"
 )
 
@@ -60,7 +61,7 @@ func TestSubscriptionsCommandLanguage(t *testing.T) {
 func TestParseKindsError(t *testing.T) {
 	_, err := parseKinds([]string{"starred"})
 	require.Error(t, err)
-	assert.Equal(t, "unknown event `starred`; use created, transitioned, assigned, commented, done, deleted", app.ErrText(app.EN, err))
+	assert.Equal(t, "unknown event `starred`; use created, transitioned, assigned, commented, done, deleted", app.ErrText(i18n.For("en"), err))
 	_, c := cmdEnv(t, "bg", nil)
 	assert.Equal(t, "непознато събитие `starred`; използвай created, transitioned, assigned, commented, done, deleted", app.ErrText(c.L(), err))
 }
