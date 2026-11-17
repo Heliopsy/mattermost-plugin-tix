@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/heliopsy/mattermost-plugin-tix/server/app"
+	"github.com/heliopsy/mattermost-plugin-tix/server/render"
 	"github.com/heliopsy/mattermost-plugin-tix/server/tix"
 )
 
@@ -114,16 +115,15 @@ func (s *summary) empty() bool {
 // when nothing counts as newly assigned.
 func classify(items []item, now time.Time, loc *time.Location, seen []string) *summary {
 	s := &summary{Counts: map[string]int{}}
-	eod := endOfDay(now, loc)
 	for _, it := range items {
 		s.Open++
 		s.Counts[it.label]++
 		s.ids = append(s.ids, it.t.ID)
-		due := it.t.DueAt
+		due, dated := render.DueOf(it.t.DueAt)
 		switch {
-		case due != nil && due.Before(now):
+		case dated && due.Overdue(now, loc):
 			s.Overdue = append(s.Overdue, it)
-		case due != nil && due.Before(eod):
+		case dated && due.DueToday(now, loc):
 			s.DueToday = append(s.DueToday, it)
 		case seen != nil && !slices.Contains(seen, it.t.ID):
 			s.New = append(s.New, it)
@@ -171,8 +171,12 @@ func escapeLink(s string) string {
 func (f *Feature) line(it item, loc *time.Location, withDue bool) string {
 	t := it.t
 	l := fmt.Sprintf("- %s[%s %s](%s)", marker(t.Priority), t.Ref, escapeLink(t.Title), f.a.TaskURL(&t))
-	if withDue && t.DueAt != nil {
-		l += " · due " + t.DueAt.In(loc).Format("Mon 2 Jan 15:04")
+	if due, ok := render.DueOf(t.DueAt); withDue && ok {
+		if due.DateOnly {
+			l += " · due " + due.At.Format("Mon 2 Jan")
+		} else {
+			l += " · due " + due.At.In(loc).Format("Mon 2 Jan 15:04")
+		}
 	}
 	return l
 }

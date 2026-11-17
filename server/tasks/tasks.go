@@ -49,6 +49,7 @@ func (f *Feature) appEnv(userID string) (*env, error) {
 	if err != nil {
 		return nil, err
 	}
+	loc := f.a.Location(userID)
 	return &env{
 		tc:        tc,
 		actorID:   l.ActorID,
@@ -69,7 +70,7 @@ func (f *Feature) appEnv(userID string) (*env, error) {
 			}
 			return id, true, nil
 		},
-		now: time.Now,
+		now: func() time.Time { return time.Now().In(loc) },
 	}, nil
 }
 

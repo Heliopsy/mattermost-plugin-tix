@@ -27,7 +27,8 @@ type env struct {
 	// mmActor maps a Mattermost username to the tix actor linked to it: ok is false when no
 	// such Mattermost user exists, and err is set when the user exists but is not linked.
 	mmActor func(username string) (actorID string, ok bool, err error)
-	now     func() time.Time
+	// now is the current time in the user's Mattermost time zone, which due dates are read in.
+	now func() time.Time
 }
 
 // isProject tells whether a word is the key of a project the user can see.

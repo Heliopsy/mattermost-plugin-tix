@@ -370,7 +370,7 @@ func TestSearchAndDue(t *testing.T) {
 	q, err = parseDue(nil, e.isProject, e.filterActor, testNow)
 	require.NoError(t, err)
 	assert.Equal(t, "me", q.Params.Get("assignee"))
-	assert.Equal(t, "2026-11-18T00:00:00Z", q.Params.Get("due_before"))
+	assert.Equal(t, "2026-11-17T23:59:59Z", q.Params.Get("due_before"))
 	assert.Empty(t, q.Params.Get("due_after"), "overdue tasks are included")
 	assert.Equal(t, "due_at", q.Params.Get("sort"))
 	ft.listed = nil
@@ -382,4 +382,50 @@ func TestSearchAndDue(t *testing.T) {
 	q, err = parseDue([]string{"infra"}, e.isProject, e.filterActor, testNow)
 	require.NoError(t, err)
 	assert.Equal(t, "infra", q.Params.Get("project"))
+}
+
+// TestDueInTimeZone: a bare due date (midnight UTC) is a whole day in the caller's zone; tix's
+// inclusive bound lets tomorrow's bare date through, and the calendar filter drops it.
+func TestDueInTimeZone(t *testing.T) {
+	sofia, err := time.LoadLocation("Europe/Sofia")
+	require.NoError(t, err)
+	e, ft := newTestEnv(t)
+	now := time.Date(2026, 11, 17, 7, 0, 0, 0, time.UTC).In(sofia) // 09:00 in Sofia
+	e.now = func() time.Time { return now }
+	day := func(d int) *time.Time { v := time.Date(2026, 11, d, 0, 0, 0, 0, time.UTC); return &v }
+	ft.listed = []tix.Task{
+		{Ref: "INFRA-1", ProjectID: "p1", Status: "todo", Title: "Due today", DueAt: day(17)},
+		{Ref: "INFRA-2", ProjectID: "p1", Status: "todo", Title: "Due yesterday", DueAt: day(16)},
+		{Ref: "INFRA-3", ProjectID: "p1", Status: "todo", Title: "Due tomorrow", DueAt: day(18)},
+	}
+	q, err := parseDue(nil, e.isProject, e.filterActor, now)
+	require.NoError(t, err)
+	assert.Equal(t, "2026-11-17T21:59:59Z", q.Params.Get("due_before"), "the end of the Sofia day")
+	got, err := e.flat(t.Context(), q, "none")
+	require.NoError(t, err)
+	assert.Contains(t, got, "INFRA-1")
+	assert.Contains(t, got, "INFRA-2")
+	assert.NotContains(t, got, "INFRA-3")
+	assert.Contains(t, got, "due 17.11.", "due today is not overdue")
+	assert.NotContains(t, got, "**overdue** 17.11.")
+	assert.Contains(t, got, "**overdue** 16.11.")
+
+	q, err = parseList([]string{"due:overdue"}, e.isProject, e.filterActor, now)
+	require.NoError(t, err)
+	got, err = e.list(t.Context(), q)
+	require.NoError(t, err)
+	assert.Contains(t, got, "INFRA-2")
+	assert.NotContains(t, got, "INFRA-1", "a bare date due today is not overdue")
+
+	q, err = parseList([]string{"due:today"}, e.isProject, e.filterActor, now)
+	require.NoError(t, err)
+	got, err = e.list(t.Context(), q)
+	require.NoError(t, err)
+	assert.Contains(t, got, "INFRA-1")
+	assert.NotContains(t, got, "INFRA-2")
+	assert.NotContains(t, got, "INFRA-3")
+
+	created := ft.listed[0]
+	assert.Contains(t, e.card(&created, nil, "Created "), "**Due:** Tue 17.11.2026", "the reported bug")
+	assert.NotContains(t, e.card(&created, nil, "Created "), "overdue")
 }

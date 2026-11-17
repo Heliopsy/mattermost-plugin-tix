@@ -349,6 +349,7 @@ func (f *Feature) card(viewer string, t *task, index int) *model.MessageAttachme
 		URL:       f.a.TaskURL(&t.Task),
 		Assignee:  f.a.MentionFor(viewer, t.AssigneeActorID),
 		ActionURL: f.a.PluginURL(actionPath),
+		Loc:       f.a.Location(viewer),
 		Index:     index,
 	})
 }

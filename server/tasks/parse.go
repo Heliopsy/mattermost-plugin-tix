@@ -9,6 +9,9 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/heliopsy/mattermost-plugin-tix/server/render"
+	"github.com/heliopsy/mattermost-plugin-tix/server/tix"
 )
 
 // priorityNames are tix's priority words, 1 the highest.
@@ -163,6 +166,39 @@ type listQuery struct {
 	Mine bool
 	// Title describes the listing for the reply.
 	Title string
+	// Due narrows the listing by calendar day in the caller's time zone, which a due_before or
+	// due_after bound alone cannot do for bare due dates (stored as midnight UTC).
+	Due dueWindow
+}
+
+// dueWindow is a calendar filter on due dates.
+type dueWindow int
+
+const (
+	dueAny     dueWindow = iota
+	dueOverdue           // past its due time, or its bare date is over
+	dueToday             // falls on today
+	dueByToday           // overdue or due today
+)
+
+// keepDue applies the query's calendar filter to a task at now (in the caller's zone).
+func (q *listQuery) keepDue(t *tix.Task, now time.Time) bool {
+	if q.Due == dueAny {
+		return true
+	}
+	d, ok := render.DueOf(t.DueAt)
+	if !ok {
+		return false
+	}
+	loc := now.Location()
+	switch q.Due {
+	case dueOverdue:
+		return d.Overdue(now, loc)
+	case dueToday:
+		return d.IsToday(now, loc)
+	default:
+		return d.Overdue(now, loc) || d.IsToday(now, loc)
+	}
 }
 
 // parseList reads /tix list [mine|all|<project>] [filter terms...]. A filter term is the tix
@@ -321,7 +357,7 @@ func addTerm(q *listQuery, term string, resolve func(string) (string, error), no
 		if err := noNeg(); err != nil {
 			return err
 		}
-		return addDue(p, strings.ToLower(val), now)
+		return addDue(q, strings.ToLower(val), now)
 	case "due-before", "due-after":
 		if err := noNeg(); err != nil {
 			return err
@@ -387,15 +423,20 @@ func addIs(p url.Values, val string, neg bool, term string) error {
 	return nil
 }
 
-func addDue(p url.Values, val string, now time.Time) error {
+// addDue reads a due: window. overdue and today are calendar days in the caller's time zone
+// (now's location); the bounds sent to tix are wide enough for bare dates and Due filters the rest.
+func addDue(q *listQuery, val string, now time.Time) error {
+	p := q.Params
+	loc := now.Location()
 	now = now.UTC()
-	day := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
 	switch {
 	case val == "overdue" || val == "late":
-		p.Set("due_before", now.Format(time.RFC3339))
+		p.Set("due_before", render.OverdueBound(now, loc).UTC().Format(time.RFC3339))
+		q.Due = dueOverdue
 	case val == "today":
-		p.Set("due_after", day.Format(time.RFC3339))
-		p.Set("due_before", day.AddDate(0, 0, 1).Format(time.RFC3339))
+		p.Set("due_after", render.TodayFrom(now, loc).UTC().Format(time.RFC3339))
+		p.Set("due_before", render.DueTodayBound(now, loc).UTC().Format(time.RFC3339))
+		q.Due = dueToday
 	case val == "week":
 		p.Set("due_after", now.Format(time.RFC3339))
 		p.Set("due_before", now.AddDate(0, 0, 7).Format(time.RFC3339))
