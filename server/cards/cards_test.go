@@ -333,7 +333,9 @@ type env struct {
 	carol  string // not linked
 	unfurl bool
 	style  string
-	quiet  int
+	// aliceLocale is alice's Mattermost language ("" is the server default, English).
+	aliceLocale string
+	quiet       int
 	// created are the posts the bot made, in order.
 	created []*model.Post
 	deleted []string
@@ -384,7 +386,7 @@ func newEnv(t *testing.T) *env {
 	e.api.On("GetConfig").Return(&model.Config{ServiceSettings: model.ServiceSettings{SiteURL: &site}}).Maybe()
 	e.api.On("GetUser", mock.Anything).Return(func(id string) (*model.User, *model.AppError) {
 		if id == e.alice {
-			return &model.User{Id: id, Username: "alice"}, nil
+			return &model.User{Id: id, Username: "alice", Locale: e.aliceLocale}, nil
 		}
 		return nil, model.NewAppError("GetUser", "not_found", nil, "", http.StatusNotFound)
 	}).Maybe()
@@ -685,4 +687,36 @@ func TestRefresh(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, cards, 1)
 	assert.Equal(t, pa.Id, cards[0].PostID)
+}
+
+// TestActionRepliesInUserLanguage: button replies and dialogs speak the clicking person's language;
+// the card itself, a channel post, stays in the server's.
+func TestActionRepliesInUserLanguage(t *testing.T) {
+	e := newEnv(t)
+	e.aliceLocale = "bg"
+	e.api.On("HasPermissionToChannel", mock.Anything, "ch1", model.PermissionReadChannelContent).Return(true)
+	var dialogs []model.OpenDialogRequest
+	e.api.On("OpenInteractiveDialog", mock.Anything).Run(func(args mock.Arguments) {
+		dialogs = append(dialogs, args.Get(0).(model.OpenDialogRequest))
+	}).Return(nil)
+	p := e.post(e.alice, "infra-1", nil)
+	assert.Equal(t, "Status", p.Attachments()[0].Fields[0].Title, "the card is in the server's language")
+
+	resp := e.click(e.alice, p, map[string]any{"ref": "infra-1", "action": "assign"})
+	assert.Equal(t, "infra-1 вече е възложена на теб.", resp.EphemeralText)
+	resp = e.click(e.alice, p, map[string]any{"ref": "infra-1", "action": "bogus"})
+	assert.Equal(t, "Този бутон не е валиден.", resp.EphemeralText)
+	resp = e.click(e.alice, p, map[string]any{"ref": "infra-1", "action": "comment"})
+	assert.Empty(t, resp.EphemeralText)
+	require.Len(t, dialogs, 1)
+	assert.Equal(t, "Коментар към infra-1", dialogs[0].Dialog.Title)
+	assert.Equal(t, "Коментирай", dialogs[0].Dialog.SubmitLabel)
+
+	resp = e.click(e.bob, p, map[string]any{"ref": "infra-1", "action": "bogus"})
+	assert.Equal(t, "That button is not valid.", resp.EphemeralText, "English for an English user")
+}
+
+func TestThreadCommentLanguage(t *testing.T) {
+	assert.Equal(t, "**bob** commented on infra-1 in tix:\n> line one\n> line two", threadComment(i18n.For("en"), "bob", "infra-1", "line one\nline two"))
+	assert.Equal(t, "**някой** коментира infra-1 в tix:\n> ок", threadComment(i18n.For("bg"), "", "infra-1", "ок"))
 }

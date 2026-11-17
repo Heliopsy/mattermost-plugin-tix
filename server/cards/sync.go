@@ -4,7 +4,6 @@ package cards
 
 import (
 	"errors"
-	"fmt"
 	"slices"
 	"strings"
 	"time"
@@ -60,34 +59,33 @@ func (f *Feature) synced(channelID string) bool {
 	return r.On
 }
 
-// canSync is the one check behind /tix sync: only channel admins (and team or system admins, who
+// canSync is the one check behind /tix sync (the returned string is a message id): only channel admins (and team or system admins, who
 // hold the same permission) of a public or private channel may switch it.
 func (f *Feature) canSync(userID, channelID string) (bool, string) {
 	ch, appErr := f.a.API.GetChannel(channelID)
 	if appErr != nil {
-		return false, "Could not read this channel."
+		return false, i18n.M("cards.sync.no_channel")
 	}
 	if ch.Type != model.ChannelTypeOpen && ch.Type != model.ChannelTypePrivate {
-		return false, "Thread sync works in public and private channels, not direct or group messages."
+		return false, i18n.M("cards.sync.wrong_channel_type")
 	}
 	if !f.a.API.HasPermissionToChannel(userID, channelID, model.PermissionManageChannelRoles) {
-		return false, "Only channel admins can turn thread sync on or off."
+		return false, i18n.M("cards.sync.admins_only")
 	}
 	return true, ""
 }
 
 func (f *Feature) syncCmd(c *command.Ctx, args []string) *model.CommandResponse {
-	userID, channelID := c.Args.UserId, c.Args.ChannelId
+	userID, channelID, l := c.Args.UserId, c.Args.ChannelId, c.L()
 	if len(args) == 0 {
-		state := "off"
 		if f.synced(channelID) {
-			state = "on"
+			return command.Ephemeral(l.T("cards.sync.status_on"))
 		}
-		return command.Ephemeral("Thread sync is " + state + " in this channel. Channel admins change it with `/tix sync on|off`.")
+		return command.Ephemeral(l.T("cards.sync.status_off"))
 	}
 	want := strings.ToLower(args[0])
 	if len(args) != 1 || (want != "on" && want != "off") {
-		return command.Ephemeral("Usage: `/tix sync on|off`")
+		return command.Ephemeral(l.T("cards.sync.usage"))
 	}
 	pc := c.Plugin
 	if pc == nil {
@@ -99,8 +97,8 @@ func (f *Feature) syncCmd(c *command.Ctx, args []string) *model.CommandResponse 
 		rec.AddMeta("channel_id", channelID)
 	}
 	rec.AddMeta("on", want == "on")
-	if ok, msg := f.canSync(userID, channelID); !ok {
-		return command.Ephemeral(msg)
+	if ok, msgID := f.canSync(userID, channelID); !ok {
+		return command.Ephemeral(l.T(msgID))
 	}
 	on := want == "on"
 	var err error
@@ -110,21 +108,24 @@ func (f *Feature) syncCmd(c *command.Ctx, args []string) *model.CommandResponse 
 		_, err = f.a.Store.Set(feature, "sync_"+channelID, nil)
 	}
 	if err != nil {
-		return command.Ephemeral("Could not save the setting.")
+		return command.Ephemeral(l.T("cards.sync.save_failed"))
 	}
 	rec.Success()
-	text := "turned tix thread sync off in this channel."
-	if on {
-		text = "turned tix thread sync on in this channel: replies in a task card's thread are added to the task in tix " +
-			"as comments by whoever wrote them, and tix comments on the task are posted into the thread. " +
-			"Everyone who can read this channel sees those comments."
-	}
-	who := "Someone"
+	// The announcement is a channel post, in the server's language.
+	sl := f.a.ServerLocale()
+	who := sl.T("cards.sync.someone")
 	if u, appErr := f.a.API.GetUser(userID); appErr == nil {
 		who = "@" + u.Username
 	}
-	if _, appErr := f.a.API.CreatePost(&model.Post{UserId: f.a.BotID, ChannelId: channelID, Message: who + " " + text}); appErr != nil {
-		return command.Ephemeral("Thread sync is " + want + ".")
+	text := sl.T("cards.sync.turned_off", "who", who)
+	if on {
+		text = sl.T("cards.sync.turned_on", "who", who)
+	}
+	if _, appErr := f.a.API.CreatePost(&model.Post{UserId: f.a.BotID, ChannelId: channelID, Message: text}); appErr != nil {
+		if on {
+			return command.Ephemeral(l.T("cards.sync.is_on"))
+		}
+		return command.Ephemeral(l.T("cards.sync.is_off"))
 	}
 	return &model.CommandResponse{}
 }
@@ -156,8 +157,7 @@ func (f *Feature) mirrorReply(post *model.Post) {
 	tc, link, err := f.a.TixFor(post.UserId)
 	if errors.Is(err, app.ErrNotLinked) {
 		if first, _ := f.a.Store.Set(feature, "synchint_"+post.UserId, 1, pluginapi.SetAtomic(nil)); first {
-			f.a.Ephemeral(post.UserId, post.ChannelId, post.RootId,
-				"Replies in this thread are copied to the task in tix, but your account is not connected, so yours was not. Run `/tix connect`.")
+			f.a.Ephemeral(post.UserId, post.ChannelId, post.RootId, f.a.Locale(post.UserId).T("cards.sync.not_linked_hint"))
 		}
 		return
 	} else if err != nil {
@@ -249,7 +249,7 @@ func (f *Feature) CommentAdded(ref, commentID, actorID, author, body string, ski
 				continue
 			}
 		}
-		p := &model.Post{UserId: f.a.BotID, ChannelId: c.ChannelID, RootId: root, Message: threadComment(author, ref, body)}
+		p := &model.Post{UserId: f.a.BotID, ChannelId: c.ChannelID, RootId: root, Message: threadComment(f.a.ServerLocale(), author, ref, body)}
 		p.AddProp(propCommentID, commentID)
 		if _, appErr := f.a.API.CreatePost(p); appErr != nil {
 			f.a.API.LogWarn("tix: posting a comment into a card thread failed", "root_id", root, "err", appErr.Error())
@@ -257,13 +257,13 @@ func (f *Feature) CommentAdded(ref, commentID, actorID, author, body string, ski
 	}
 }
 
-// threadComment is the bot post for a tix comment in a card thread.
-func threadComment(author, ref, body string) string {
+// threadComment is the bot post for a tix comment in a card thread, in l's language (the channel's).
+func threadComment(l *i18n.Localizer, author, ref, body string) string {
 	if author == "" {
-		author = "someone"
+		author = l.T("cards.sync.someone_lower")
 	}
 	body = truncate(body, maxThreadComment)
-	return fmt.Sprintf("**%s** commented on %s in tix:\n> %s", author, ref, strings.ReplaceAll(body, "\n", "\n> "))
+	return l.T("cards.sync.thread_comment", "author", author, "ref", ref) + "\n> " + strings.ReplaceAll(body, "\n", "\n> ")
 }
 
 // truncate cuts s to at most n bytes on a rune boundary, marking the cut.

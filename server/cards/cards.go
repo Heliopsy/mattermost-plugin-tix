@@ -24,6 +24,7 @@ import (
 
 	"github.com/heliopsy/mattermost-plugin-tix/server/api"
 	"github.com/heliopsy/mattermost-plugin-tix/server/app"
+	"github.com/heliopsy/mattermost-plugin-tix/server/i18n"
 	"github.com/heliopsy/mattermost-plugin-tix/server/store"
 	"github.com/heliopsy/mattermost-plugin-tix/server/tix"
 )
@@ -418,10 +419,10 @@ func refsOf(post *model.Post) []string {
 	return out
 }
 
-// errText is the line a person sees for a failed action.
-func errText(err error) string {
+// errText is the line a person sees for a failed action, in l's language.
+func errText(l *i18n.Localizer, err error) string {
 	if errors.Is(err, app.ErrNotLinked) {
-		return "Connect your Mattermost account to tix first: run `/tix connect`."
+		return l.T("cards.err.not_linked")
 	}
-	return app.ErrText(app.EN, err)
+	return app.ErrText(l, err)
 }
