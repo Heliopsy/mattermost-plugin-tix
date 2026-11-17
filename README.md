@@ -137,6 +137,18 @@ Connected people get a DM from the bot when:
 Nobody is told about their own actions, and each event gives a person at most one DM. `/tix notifications off`
 turns these DMs off (`on` turns them back on); channel feeds are not affected.
 
+## Task cards
+
+With **Show task cards** on (System Console > Plugins > tix), a message that mentions a task such as
+`infra-42` gets a card for it: up to three per message, matched against the project keys the author can see,
+ignoring code and links. The card is coloured by the state's category and shows the title (linking to tix),
+status, assignee, priority, due date, tags and the project.
+
+A card is drawn with the author's own tix token, so a message only shows tasks its author can see; an author who
+has not run `/tix connect` gets no cards. The buttons (up to three next states from the workflow, *Assign to me*
+and *Comment*) act with the token of whoever clicks them; a transition that needs a comment, and *Comment*, open a
+dialog. Cards are redrawn in place after a button is used and when tix reports a change to the task.
+
 ## Development
 
 To avoid having to manually install your plugin, build and deploy your plugin using one of the following options. In order for the below options to work, you must first enable plugin uploads via your config.json or API and restart Mattermost.
