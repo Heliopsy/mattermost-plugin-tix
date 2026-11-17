@@ -284,6 +284,8 @@ type env struct {
 	tix   *fakeTix
 	clock time.Time
 	posts []string
+	// locale is the person's Mattermost language ("" for the server default).
+	locale string
 }
 
 func newEnv(t *testing.T, tz string, start time.Time) *env {
@@ -292,7 +294,9 @@ func newEnv(t *testing.T, tz string, start time.Time) *env {
 	t.Cleanup(srv.Close)
 	e.kv = &fakeKV{data: map[string][]byte{}, exp: map[string]time.Time{}, now: func() time.Time { return e.clock }}
 	e.api = &testAPI{API: &plugintest.API{}, kv: e.kv}
-	e.api.On("GetUser", userID).Return(&model.User{Id: userID, Timezone: model.StringMap{"useAutomaticTimezone": "true", "automaticTimezone": tz}}, nil)
+	e.api.On("GetUser", userID).Return(func(string) (*model.User, *model.AppError) {
+		return &model.User{Id: userID, Locale: e.locale, Timezone: model.StringMap{"useAutomaticTimezone": "true", "automaticTimezone": tz}}, nil
+	})
 	e.api.On("GetDirectChannel", userID, botID).Return(&model.Channel{Id: "dm"}, nil)
 	e.api.On("GetConfig").Return(&model.Config{}).Maybe()
 	e.api.On("CreatePost", mock.AnythingOfType("*model.Post")).Run(func(args mock.Arguments) {
@@ -588,6 +592,27 @@ func TestCommands(t *testing.T) {
 
 	require.NoError(t, e.app.Store.DeleteLink(userID))
 	assert.True(t, strings.Contains(e.cmd(f, "/tix reminders on"), "/tix connect"), "linking is required")
+}
+
+func TestCommandsInBulgarian(t *testing.T) {
+	e := newEnv(t, "Europe/Sofia", sofiaAt(tue, 7, 0))
+	e.locale = "bg"
+	f := e.feature()
+	assert.Equal(t, "Обобщението ти от tix е **изключено**. `/tix digest on [HH:MM]` го включва.\n"+
+		"Напомнянията са **изключени**. `/tix reminders on` ги включва.\n"+
+		"Те са отделно от `/tix notifications`, което е за лични съобщения при промени по задачите ти.", e.cmd(f, "/tix digest"))
+	assert.Equal(t, "`25:00` не е час от деня; използвай HH:MM, напр. 08:30", e.cmd(f, "/tix digest on 25:00"))
+	out := e.cmd(f, "/tix digest on 7:45")
+	assert.Contains(t, out, "Обобщението ти от tix е **включено**: от понеделник до петък в 07:45 (Europe/Sofia); празното казва „Всичко е наред“.")
+	assert.Contains(t, out, "Следващо: 17.11.2026 07:45.")
+	out = e.cmd(f, "/tix reminders on")
+	assert.Contains(t, out, "Напомнянията са **включени**: за задачите със срок днес сутрин в 07:45, за просрочените между 08:00 и 21:00.")
+	assert.Equal(t, "Употреба: `/tix reminders on|off|status`", e.cmd(f, "/tix reminders maybe"))
+	e.tix.set(task("1", "doing", nil, 3))
+	assert.Equal(t, "Изпратих обобщението ти в личните съобщения с @tix.", e.cmd(f, "/tix digest now"))
+	posts := e.take()
+	require.Len(t, posts, 1)
+	assert.Contains(t, posts[0], "**В процес (1)**", "the digest itself is in the person's language")
 }
 
 // TestDigestSections: the DigestSections setting picks and orders the sections; a task in a

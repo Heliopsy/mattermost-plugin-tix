@@ -15,11 +15,6 @@ import (
 	"github.com/heliopsy/mattermost-plugin-tix/server/i18n"
 )
 
-const (
-	digestUsage    = "Usage: `/tix digest on [HH:MM]|off|now|status|days mon-fri|daily|quiet on|off`"
-	remindersUsage = "Usage: `/tix reminders on|off|status`"
-)
-
 // Commands are /tix digest and /tix reminders.
 func (f *Feature) Commands() []command.Sub {
 	return []command.Sub{
@@ -68,7 +63,7 @@ func (f *Feature) set(c *command.Ctx, event string, change func(r *record)) (*re
 	rec, done := f.audit(c, event)
 	defer done()
 	if _, _, err := f.a.TixFor(userID); err != nil {
-		return nil, app.ErrText(app.EN, err)
+		return nil, app.ErrText(c.L(), err)
 	}
 	loc := f.location(userID)
 	now := f.now()
@@ -83,7 +78,7 @@ func (f *Feature) set(c *command.Ctx, event string, change func(r *record)) (*re
 	})
 	if err != nil {
 		f.a.API.LogError("tix digest: saving settings", "user_id", userID, "err", err.Error())
-		return nil, "Could not save that."
+		return nil, c.L().T("digest.cmd.save_failed")
 	}
 	rec.Success()
 	return r, ""
@@ -105,7 +100,7 @@ func (f *Feature) digestCmd(c *command.Ctx, args []string) *model.CommandRespons
 		if len(args) > 1 {
 			var err error
 			if at, err = parseClock(args[1]); err != nil {
-				return command.Ephemeral(err.Error())
+				return command.Ephemeral(app.ErrText(c.L(), err))
 			}
 		}
 		change = func(r *record) {
@@ -118,7 +113,7 @@ func (f *Feature) digestCmd(c *command.Ctx, args []string) *model.CommandRespons
 		change = func(r *record) { r.Digest = false }
 	case "days":
 		if len(args) < 2 {
-			return command.Ephemeral(digestUsage)
+			return command.Ephemeral(c.L().T("digest.cmd.usage"))
 		}
 		switch strings.ToLower(args[1]) {
 		case "mon-fri", "workdays", "weekdays":
@@ -126,11 +121,11 @@ func (f *Feature) digestCmd(c *command.Ctx, args []string) *model.CommandRespons
 		case "daily", "all", "every":
 			change = func(r *record) { r.Daily = true }
 		default:
-			return command.Ephemeral("Use `/tix digest days mon-fri` or `/tix digest days daily`.")
+			return command.Ephemeral(c.L().T("digest.cmd.days_usage"))
 		}
 	case "quiet":
 		if len(args) < 2 {
-			return command.Ephemeral(digestUsage)
+			return command.Ephemeral(c.L().T("digest.cmd.usage"))
 		}
 		switch strings.ToLower(args[1]) {
 		case "on":
@@ -138,10 +133,10 @@ func (f *Feature) digestCmd(c *command.Ctx, args []string) *model.CommandRespons
 		case "off":
 			change = func(r *record) { r.Quiet = false }
 		default:
-			return command.Ephemeral("Use `/tix digest quiet on` or `/tix digest quiet off`.")
+			return command.Ephemeral(c.L().T("digest.cmd.quiet_usage"))
 		}
 	default:
-		return command.Ephemeral(digestUsage)
+		return command.Ephemeral(c.L().T("digest.cmd.usage"))
 	}
 	if _, msg := f.set(c, "tixDigestSettings", change); msg != "" {
 		return command.Ephemeral(msg)
@@ -162,7 +157,7 @@ func (f *Feature) remindersCmd(c *command.Ctx, args []string) *model.CommandResp
 		on = true
 	case "off":
 	default:
-		return command.Ephemeral(remindersUsage)
+		return command.Ephemeral(c.L().T("digest.cmd.reminders_usage"))
 	}
 	if _, msg := f.set(c, "tixRemindersSettings", func(r *record) { r.Reminders = on }); msg != "" {
 		return command.Ephemeral(msg)
@@ -170,52 +165,54 @@ func (f *Feature) remindersCmd(c *command.Ctx, args []string) *model.CommandResp
 	return command.Ephemeral(f.status(c.Args.UserId))
 }
 
-// status describes a person's settings.
+// status describes a person's settings, in their language.
 func (f *Feature) status(userID string) string {
+	l := f.a.Locale(userID)
 	r, _, err := f.load(userID)
 	if err != nil {
-		return "Could not read your digest settings."
+		return l.T("digest.cmd.read_failed")
 	}
 	loc := f.location(userID)
 	var b strings.Builder
 	if r.Digest {
-		days := "Monday to Friday"
+		days := l.T("digest.status.workdays")
 		if r.Daily {
-			days = "every day"
+			days = l.T("digest.status.every_day")
 		}
-		quiet := "an empty one says All clear"
+		quiet := l.T("digest.status.empty_sent")
 		if r.Quiet {
-			quiet = "empty ones are skipped"
+			quiet = l.T("digest.status.empty_skipped")
 		}
-		fmt.Fprintf(&b, "Your tix digest is **on**: %s at %s (%s); %s.", days, r.at(), loc, quiet)
+		b.WriteString(l.T("digest.status.on", "days", days, "at", r.at(), "zone", loc.String(), "quiet", quiet))
 		if !r.NextRun.IsZero() {
-			fmt.Fprintf(&b, " Next run: %s.", f.renderer(userID, loc, f.now()).DateTime(r.NextRun))
+			b.WriteString(" " + l.T("digest.status.next_run", "when", f.renderer(userID, loc, f.now()).DateTime(r.NextRun)))
 		}
 	} else {
-		b.WriteString("Your tix digest is **off**. `/tix digest on [HH:MM]` turns it on.")
+		b.WriteString(l.T("digest.status.off"))
 	}
 	if r.Reminders {
-		fmt.Fprintf(&b, "\nDue reminders are **on**: tasks due today in the morning run at %s, overdue tasks between %02d:00 and %02d:00.", r.at(), checkFrom, checkUntil)
+		b.WriteString("\n" + l.T("digest.status.reminders_on", "at", r.at(), "from", fmt.Sprintf("%02d:00", checkFrom), "until", fmt.Sprintf("%02d:00", checkUntil)))
 	} else {
-		b.WriteString("\nDue reminders are **off**. `/tix reminders on` turns them on.")
+		b.WriteString("\n" + l.T("digest.status.reminders_off"))
 	}
-	b.WriteString("\nThese are separate from `/tix notifications`, which covers DMs about changes to your tasks.")
+	b.WriteString("\n" + l.T("digest.status.separate"))
 	return b.String()
 }
 
 // sendNow DMs the digest at once without touching the schedule or what counts as new.
 func (f *Feature) sendNow(userID string) string {
+	l := f.a.Locale(userID)
 	tc, _, err := f.a.TixFor(userID)
 	if err != nil {
-		return app.ErrText(app.EN, err)
+		return app.ErrText(l, err)
 	}
 	r, _, err := f.load(userID)
 	if err != nil {
-		return "Could not read your digest settings."
+		return l.T("digest.cmd.read_failed")
 	}
 	items, err := f.fetch(userID, tc, time.Time{})
 	if err != nil {
-		return app.ErrText(app.EN, err)
+		return app.ErrText(l, err)
 	}
 	loc := f.location(userID)
 	var seen []string
@@ -228,7 +225,7 @@ func (f *Feature) sendNow(userID string) string {
 	now := f.now()
 	if err := f.a.DM(userID, &model.Post{Message: f.renderDigest(classify(items, now, loc, seen), f.renderer(userID, loc, now))}); err != nil {
 		f.a.API.LogWarn("tix digest: sending", "user_id", userID, "err", err.Error())
-		return "Could not send the digest."
+		return l.T("digest.cmd.send_failed")
 	}
-	return "Sent your digest to your DM with @tix."
+	return l.T("digest.cmd.sent")
 }
