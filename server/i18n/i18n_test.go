@@ -101,7 +101,10 @@ var idArg = map[string]int{"T": 0, "N": 0, "M": 0, "NewError": 0, "Wrap": 1}
 // idField are struct fields that hold a message id.
 var idField = map[string]bool{"HelpID": true}
 
-var idPattern = regexp.MustCompile(`^[a-z][a-z0-9_]*(\.[a-z0-9_]+)+$`)
+var (
+	idPattern   = regexp.MustCompile(`^[a-z][a-z0-9_]*(\.[a-z0-9_]+)+$`)
+	areaPattern = regexp.MustCompile(`^(app|cards|command|digest|link|notify|render|tasks|webapi)\.[a-z0-9_]+\.`)
+)
 
 // usedIDs collects the message ids the server code names.
 func usedIDs(t *testing.T) map[string]string {
@@ -137,6 +140,14 @@ func usedIDs(t *testing.T) map[string]string {
 		}
 		ast.Inspect(f, func(n ast.Node) bool {
 			switch x := n.(type) {
+			case *ast.BasicLit:
+				// Any other literal shaped like an id of a catalog area, such as one handed to a helper
+				// (writeErr(..., "webapi.err.bad_json")), counts as used and must exist.
+				if x.Kind == token.STRING {
+					if id, err := strconv.Unquote(x.Value); err == nil && idPattern.MatchString(id) && areaPattern.MatchString(id) {
+						used[id] = fset.Position(x.Pos()).String()
+					}
+				}
 			case *ast.CallExpr:
 				name := ""
 				if fn, ok := x.Fun.(*ast.SelectorExpr); ok {
