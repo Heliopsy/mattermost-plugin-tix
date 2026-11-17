@@ -19,6 +19,7 @@ import (
 	"github.com/heliopsy/mattermost-plugin-tix/server/api"
 	"github.com/heliopsy/mattermost-plugin-tix/server/app"
 	"github.com/heliopsy/mattermost-plugin-tix/server/command"
+	"github.com/heliopsy/mattermost-plugin-tix/server/i18n"
 	"github.com/heliopsy/mattermost-plugin-tix/server/store"
 	"github.com/heliopsy/mattermost-plugin-tix/server/tix"
 )
@@ -44,22 +45,22 @@ func (f *Feature) Routes(h *api.Handler) {
 }
 
 func (f *Feature) connect(c *command.Ctx, args []string) *model.CommandResponse {
-	userID := c.Args.UserId
+	userID, l := c.Args.UserId, c.L()
 	if len(args) > 0 && strings.TrimSpace(args[0]) != "" {
-		msg, err := f.linkWithToken(userID, strings.TrimSpace(args[0]))
+		msg, err := f.linkWithToken(l, userID, strings.TrimSpace(args[0]))
 		if err != nil {
-			return command.Ephemeral(app.ErrText(app.EN, err))
+			return command.Ephemeral(app.ErrText(l, err))
 		}
 		return command.Ephemeral(msg)
 	}
 	if f.a.Config().AdminToken != "" {
-		msg, err := f.linkByEmail(userID)
+		msg, err := f.linkByEmail(l, userID)
 		if err == nil {
 			return command.Ephemeral(msg)
 		}
 		f.a.API.LogInfo("tix: automatic connect failed, offering the token dialog", "user_id", userID, "err", err.Error())
 		if !errors.Is(err, errNoMatch) {
-			return command.Ephemeral(app.ErrText(app.EN, err))
+			return command.Ephemeral(app.ErrText(l, err))
 		}
 	}
 	return f.openDialog(c)
@@ -67,21 +68,22 @@ func (f *Feature) connect(c *command.Ctx, args []string) *model.CommandResponse 
 
 func (f *Feature) openDialog(c *command.Ctx) *model.CommandResponse {
 	tokensURL := f.a.TixURL() + "/connect?tab=api"
+	l := c.L()
 	dlg := model.OpenDialogRequest{
 		TriggerId: c.Args.TriggerId,
 		URL:       f.a.PluginURL("/api/v1/dialog/connect"),
 		Dialog: model.Dialog{
-			Title:            "Connect to tix",
-			IntroductionText: fmt.Sprintf("Make a token in tix ([%s](%s)) with the task, project, workflow and comment scopes, then paste it here. The plugin stores it encrypted and acts as you with it.", tokensURL, tokensURL),
-			SubmitLabel:      "Connect",
+			Title:            l.T("link.dialog.title"),
+			IntroductionText: l.T("link.dialog.intro", "url", tokensURL),
+			SubmitLabel:      l.T("link.dialog.submit"),
 			Elements: []model.DialogElement{{
-				DisplayName: "tix token", Name: "token", Type: "text", SubType: "password",
+				DisplayName: l.T("link.dialog.token"), Name: "token", Type: "text", SubType: "password",
 				Placeholder: "tix_...",
 			}},
 		},
 	}
 	if err := f.a.API.OpenInteractiveDialog(dlg); err != nil {
-		return command.Ephemeral("Run `/tix connect <token>` with a token made in tix: " + tokensURL)
+		return command.Ephemeral(l.T("link.connect.by_command", "url", tokensURL))
 	}
 	return &model.CommandResponse{}
 }
@@ -93,19 +95,20 @@ func (f *Feature) dialogSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	tok, _ := req.Submission["token"].(string)
-	msg, err := f.linkWithToken(req.UserId, strings.TrimSpace(tok))
+	l := f.a.Locale(req.UserId)
+	msg, err := f.linkWithToken(l, req.UserId, strings.TrimSpace(tok))
 	if err != nil {
-		api.WriteJSON(w, r, http.StatusOK, model.SubmitDialogResponse{Errors: map[string]string{"token": app.ErrText(app.EN, err)}})
+		api.WriteJSON(w, r, http.StatusOK, model.SubmitDialogResponse{Errors: map[string]string{"token": app.ErrText(l, err)}})
 		return
 	}
 	f.a.Ephemeral(req.UserId, req.ChannelId, "", msg)
 	api.WriteJSON(w, r, http.StatusOK, model.SubmitDialogResponse{})
 }
 
-// linkWithToken checks a pasted token and stores it.
-func (f *Feature) linkWithToken(userID, token string) (string, error) {
+// linkWithToken checks a pasted token and stores it; the answer is in l's language.
+func (f *Feature) linkWithToken(l *i18n.Localizer, userID, token string) (string, error) {
 	if token == "" {
-		return "", errors.New("paste a token")
+		return "", i18n.NewError("link.err.paste_token")
 	}
 	c, err := f.a.NewTix(token)
 	if err != nil {
@@ -123,38 +126,39 @@ func (f *Feature) linkWithToken(userID, token string) (string, error) {
 	if act, aerr := c.GetActor(ctx, me.ID); aerr == nil && act != nil && act.Handle != "" {
 		person = act
 	}
-	l := &store.Link{UserID: userID, ActorID: me.ID, Handle: person.Handle, Email: me.Email, TenantKey: me.TenantKey, TokenID: me.TokenID, LinkedAt: time.Now()}
-	if err := f.a.Store.SaveLink(l, token); err != nil {
+	ln := &store.Link{UserID: userID, ActorID: me.ID, Handle: person.Handle, Email: me.Email, TenantKey: me.TenantKey, TokenID: me.TokenID, LinkedAt: time.Now()}
+	if err := f.a.Store.SaveLink(ln, token); err != nil {
 		return "", err
 	}
 	f.a.InvalidateUser(userID)
-	return fmt.Sprintf("Connected to tix as **%s** in tenant **%s**.", person.Name(), me.TenantName), nil
+	return l.T("link.connected_token", "name", person.Name(), "tenant", me.TenantName), nil
 }
 
-var errNoMatch = errors.New("no tix account matches your email")
+var errNoMatch = i18n.NewError("link.err.no_match")
 
 // ErrNoMatch is returned by ConnectByEmail when no tix person has the user's verified email.
 var ErrNoMatch = errNoMatch
 
 // ErrNoAdminToken is returned by ConnectByEmail when no admin token is configured to issue tokens with.
-var ErrNoAdminToken = errors.New("connecting by email needs the admin token; run `/tix connect` with a token made in tix")
+var ErrNoAdminToken = i18n.NewError("link.err.no_admin_token")
 
-// ConnectByEmail runs the email-matched connect of `/tix connect` for the webapp and returns its message.
+// ConnectByEmail runs the email-matched connect of `/tix connect` for the webapp and returns its
+// message, in the user's language.
 func (f *Feature) ConnectByEmail(userID string) (string, error) {
 	if f.a.Config().AdminToken == "" {
 		return "", ErrNoAdminToken
 	}
-	return f.linkByEmail(userID)
+	return f.linkByEmail(f.a.Locale(userID), userID)
 }
 
 // linkByEmail finds the tix person with the user's verified email and issues them a token.
-func (f *Feature) linkByEmail(userID string) (string, error) {
+func (f *Feature) linkByEmail(l *i18n.Localizer, userID string) (string, error) {
 	u, appErr := f.a.API.GetUser(userID)
 	if appErr != nil {
 		return "", appErr
 	}
 	if !u.EmailVerified || u.Email == "" {
-		return "", fmt.Errorf("%w: your Mattermost email is not verified", errNoMatch)
+		return "", i18n.Wrap(errNoMatch, "link.err.email_unverified")
 	}
 	admin, err := f.a.NewTix(f.a.Config().AdminToken)
 	if err != nil {
@@ -164,7 +168,7 @@ func (f *Feature) linkByEmail(userID string) (string, error) {
 	defer cancel()
 	users, err := admin.ListUsers(ctx)
 	if err != nil {
-		return "", fmt.Errorf("listing tix accounts with the admin token (needs user:admin): %w", err)
+		return "", i18n.Wrap(err, "link.err.list_users")
 	}
 	var match *tix.User
 	for i := range users {
@@ -178,7 +182,7 @@ func (f *Feature) linkByEmail(userID string) (string, error) {
 	}
 	members, err := admin.ListMembers(ctx)
 	if err != nil {
-		return "", fmt.Errorf("reading tix roles with the admin token (needs tenant:admin): %w", err)
+		return "", i18n.Wrap(err, "link.err.list_members")
 	}
 	role := ""
 	for _, m := range members {
@@ -192,11 +196,11 @@ func (f *Feature) linkByEmail(userID string) (string, error) {
 	case "viewer":
 		scopes = tix.ViewerScopes
 	default:
-		return "", fmt.Errorf("%w: your tix account is not a member of this tenant", errNoMatch)
+		return "", i18n.Wrap(errNoMatch, "link.err.not_member")
 	}
 	actor, err := admin.GetActor(ctx, match.ID)
 	if err != nil {
-		return "", fmt.Errorf("reading your tix account: %w", err)
+		return "", i18n.Wrap(err, "link.err.read_actor")
 	}
 	if old, gerr := f.a.Store.GetLink(userID); gerr == nil && old.Minted {
 		f.revoke(old)
@@ -204,14 +208,14 @@ func (f *Feature) linkByEmail(userID string) (string, error) {
 	name := fmt.Sprintf("mattermost-%s-%d", u.Username, time.Now().Unix())
 	issued, err := admin.CreateToken(ctx, name, match.ID, scopes)
 	if err != nil {
-		return "", fmt.Errorf("issuing your tix token: %w", err)
+		return "", i18n.Wrap(err, "link.err.issue_token")
 	}
-	l := &store.Link{UserID: userID, ActorID: match.ID, Handle: actor.Handle, Email: match.Email, TenantKey: actor.TenantKey, TokenID: issued.ID, Minted: true, LinkedAt: time.Now()}
-	if err := f.a.Store.SaveLink(l, issued.Token); err != nil {
+	ln := &store.Link{UserID: userID, ActorID: match.ID, Handle: actor.Handle, Email: match.Email, TenantKey: actor.TenantKey, TokenID: issued.ID, Minted: true, LinkedAt: time.Now()}
+	if err := f.a.Store.SaveLink(ln, issued.Token); err != nil {
 		return "", err
 	}
 	f.a.InvalidateUser(userID)
-	return fmt.Sprintf("Connected to tix as **%s** (matched by your email). tix records what you do here as you; the token is named `%s` and `/tix disconnect` revokes it.", actor.Name(), name), nil
+	return l.T("link.connected_email", "name", actor.Name(), "token", name), nil
 }
 
 // revoke deletes the token a link holds, as the linked person, falling back to the admin token.
@@ -234,36 +238,38 @@ func (f *Feature) revoke(l *store.Link) {
 }
 
 func (f *Feature) disconnect(c *command.Ctx, _ []string) *model.CommandResponse {
+	lang := c.L()
 	l, err := f.a.Store.GetLink(c.Args.UserId)
 	if errors.Is(err, store.ErrNotFound) {
-		return command.Ephemeral("You are not connected to tix.")
+		return command.Ephemeral(lang.T("link.disconnect.not_connected"))
 	} else if err != nil {
-		return command.Ephemeral(app.ErrText(app.EN, err))
+		return command.Ephemeral(app.ErrText(lang, err))
 	}
 	if l.Minted {
 		f.revoke(l)
 	}
 	if err := f.a.Store.DeleteLink(c.Args.UserId); err != nil {
-		return command.Ephemeral(app.ErrText(app.EN, err))
+		return command.Ephemeral(app.ErrText(lang, err))
 	}
 	f.a.InvalidateUser(c.Args.UserId)
-	msg := "Disconnected from tix. The plugin no longer holds a token for you."
+	msg := lang.T("link.disconnect.done")
 	if !l.Minted {
-		msg += " The token you pasted still works in tix; revoke it there if you no longer need it."
+		msg += " " + lang.T("link.disconnect.pasted_token")
 	}
 	return command.Ephemeral(msg)
 }
 
 func (f *Feature) me(c *command.Ctx, _ []string) *model.CommandResponse {
+	lang := c.L()
 	tc, l, err := f.a.TixFor(c.Args.UserId)
 	if err != nil {
-		return command.Ephemeral(app.ErrText(app.EN, err))
+		return command.Ephemeral(app.ErrText(lang, err))
 	}
 	ctx, cancel := app.Ctx()
 	defer cancel()
 	me, err := tc.WhoAmI(ctx)
 	if err != nil {
-		return command.Ephemeral(app.ErrText(app.EN, err))
+		return command.Ephemeral(app.ErrText(lang, err))
 	}
 	person, handle := me.Name(), ""
 	if act, aerr := f.a.Actor(c.Args.UserId, l.ActorID); aerr == nil && act != nil {
@@ -273,8 +279,8 @@ func (f *Feature) me(c *command.Ctx, _ []string) *model.CommandResponse {
 	slices.Sort(scopes)
 	tenant := ""
 	if me.TenantName != "" {
-		tenant = " in tenant **" + me.TenantName + "**"
+		tenant = lang.T("link.me.tenant", "tenant", me.TenantName)
 	}
-	return command.Ephemeral(fmt.Sprintf("Connected to **%s** as **%s**%s%s since %s, with the token `%s`.\nScopes: `%s`",
-		f.a.TixURL(), person, handle, tenant, f.a.RendererFor(c.Args.UserId).Date(l.LinkedAt), me.Handle, strings.Join(scopes, "`, `")))
+	return command.Ephemeral(lang.T("link.me", "url", f.a.TixURL(), "name", person, "handle", handle, "tenant", tenant,
+		"since", f.a.RendererFor(c.Args.UserId).Date(l.LinkedAt), "token", me.Handle, "scopes", strings.Join(scopes, "`, `")))
 }
