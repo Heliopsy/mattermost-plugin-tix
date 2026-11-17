@@ -117,12 +117,18 @@ func (f *Feature) linkWithToken(userID, token string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	l := &store.Link{UserID: userID, ActorID: me.ID, Handle: me.Handle, Email: me.Email, TenantKey: me.TenantKey, TokenID: me.TokenID, LinkedAt: time.Now()}
+	// whoami answers for the token, so its handle is the token's name. Mentions match people by
+	// their own handle, which the actor record has.
+	person := me
+	if act, aerr := c.GetActor(ctx, me.ID); aerr == nil && act != nil && act.Handle != "" {
+		person = act
+	}
+	l := &store.Link{UserID: userID, ActorID: me.ID, Handle: person.Handle, Email: me.Email, TenantKey: me.TenantKey, TokenID: me.TokenID, LinkedAt: time.Now()}
 	if err := f.a.Store.SaveLink(l, token); err != nil {
 		return "", err
 	}
 	f.a.InvalidateUser(userID)
-	return fmt.Sprintf("Connected to tix as **%s** in tenant **%s**.", me.Name(), me.TenantName), nil
+	return fmt.Sprintf("Connected to tix as **%s** in tenant **%s**.", person.Name(), me.TenantName), nil
 }
 
 var errNoMatch = errors.New("no tix account matches your email")

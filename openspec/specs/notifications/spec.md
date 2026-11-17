@@ -104,6 +104,12 @@ none to a person who turned notifications off with `/tix notifications off`.
 - **WHEN** alice assigns a task to bob, who is connected
 - **THEN** bob gets a DM saying alice assigned him the task
 
+#### Scenario: Mention of a person who pasted a token
+
+- **WHEN** carol connected by pasting a tix token and alice writes `@carol` in a comment on a task carol can read
+- **THEN** carol gets a DM saying alice mentioned her, because the link keeps carol's own tix handle, not the
+  token's name
+
 #### Scenario: Own action
 
 - **WHEN** bob assigns a task to himself
