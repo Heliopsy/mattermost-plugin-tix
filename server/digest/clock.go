@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/heliopsy/mattermost-plugin-tix/server/i18n"
 )
 
 const (
@@ -25,7 +27,7 @@ func parseClock(s string) (string, error) {
 	hh, err1 := strconv.Atoi(h)
 	mm, err2 := strconv.Atoi(m)
 	if err1 != nil || err2 != nil || hh < 0 || hh > 23 || mm < 0 || mm > 59 || len(m) > 2 {
-		return "", fmt.Errorf("`%s` is not a time of day; use HH:MM, e.g. 08:30", s)
+		return "", i18n.NewError("digest.err.bad_clock", "value", s)
 	}
 	return fmt.Sprintf("%02d:%02d", hh, mm), nil
 }
